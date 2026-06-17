@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>LAST SURVIVOR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@400;700;900&family=Special+Elite&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="game.css" />
+<script type="importmap">
+{
+   "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loadingScreen" class="overlay" data-testid="loading-screen">
+  <div class="loading-vignette"></div>
+  <div class="loading-content">
+    <div class="loading-title">LAST&nbsp;SURVIVOR</div>
+    <div class="loading-sub">Initializing facility systems<span class="dots"></span></div>
+    <div class="loading-bar"><div class="loading-fill" id="loadingFill"></div></div>
+    <div class="loading-tag" id="loadingTag">Loading shaders…</div>
+  </div>
+</div>
+
+<!-- Main Menu -->
+<div id="mainMenu" class="overlay hidden" data-testid="main-menu">
+  <div class="menu-grain"></div>
+  <div class="menu-grid">
+    <div class="menu-left">
+      <div class="menu-tag">— Subject 07 / Containment Breach —</div>
+      <ul class="menu-list">
+        <li class="menu-item active" data-action="newgame" data-testid="menu-new-game"><span class="i-num">01</span><span class="i-label">New Game</span></li>
+        <li class="menu-item" data-action="resume" data-testid="menu-resume"><span class="i-num">02</span><span class="i-label">Resume</span></li>
+        <li class="menu-item" data-action="settings" data-testid="menu-settings"><span class="i-num">03</span><span class="i-label">Settings</span></li>
+        <li class="menu-item" data-action="about" data-testid="menu-about"><span class="i-num">04</span><span class="i-label">About</span></li>
+        <li class="menu-item" data-action="exit" data-testid="menu-exit"><span class="i-num">05</span><span class="i-label">Exit</span></li>
+      </ul>
+      <div class="menu-version">v1.0 — facility build · classified</div>
+    </div>
+    <div class="menu-center">
+      <div class="title-mark">█ ▓ ▒</div>
+      <h1 class="game-title">LAST<br/>SURVIVOR</h1>
+      <div class="title-sub">a single survivor remains</div>
+    </div>
+    <div class="menu-right">
+      <canvas id="menuCanvas" data-testid="menu-canvas"></canvas>
+      <div class="menu-right-tag">SUBJECT · LIVE FEED</div>
+    </div>
+  </div>
+  <div class="menu-footer">
+    <span>[W A S D] move</span>
+    <span>[MOUSE] look</span>
+    <span>[SHIFT] sprint</span>
+    <span>[F] flashlight</span>
+    <span>[E] interact</span>
+    <span>[ESC] pause</span>
+  </div>
+</div>
+
+<!-- Settings Panel -->
+<div id="settingsPanel" class="overlay hidden" data-testid="settings-panel">
+  <div class="panel">
+    <div class="panel-head">SETTINGS</div>
+    <div class="panel-row"><label>Mouse Sensitivity</label><input type="range" id="setSens" min="0.0005" max="0.005" step="0.0001" value="0.0022" data-testid="set-sens" /></div>
+    <div class="panel-row"><label>Master Volume</label><input type="range" id="setVol" min="0" max="1" step="0.01" value="0.8" data-testid="set-vol" /></div>
+    <div class="panel-row"><label>Bloom Intensity</label><input type="range" id="setBloom" min="0" max="1.5" step="0.01" value="0.55" data-testid="set-bloom" /></div>
+    <div class="panel-row"><label>Film Grain</label><input type="range" id="setGrain" min="0" max="1" step="0.01" value="0.45" data-testid="set-grain" /></div>
+    <div class="panel-row"><label>Field of View</label><input type="range" id="setFov" min="60" max="100" step="1" value="75" data-testid="set-fov" /></div>
+    <div class="panel-row"><label>Head Bobbing</label><input type="checkbox" id="setBob" checked data-testid="set-bob" /></div>
+    <div class="panel-buttons"><button id="settingsBack" data-testid="settings-back">BACK</button></div>
+  </div>
+</div>
+
+<!-- About Panel -->
+<div id="aboutPanel" class="overlay hidden" data-testid="about-panel">
+  <div class="panel">
+    <div class="panel-head">ABOUT</div>
+    <div class="panel-body">
+      <p><strong>LAST SURVIVOR</strong> — A first-person horror survival experience set deep within an abandoned underground research facility.</p>
+      <p>You are Subject 07. The power is out. Something is loose. Find a way to restore the generator, unlock the exit gate, and escape.</p>
+      <p class="dim">Built with Three.js · WebGL2 · procedural worldgen · web audio</p>
+    </div>
+    <div class="panel-buttons"><button id="aboutBack" data-testid="about-back">BACK</button></div>
+  </div>
+</div>
+
+<!-- Pause Menu -->
+<div id="pauseMenu" class="overlay hidden" data-testid="pause-menu">
+  <div class="panel">
+    <div class="panel-head">PAUSED</div>
+    <div class="panel-buttons col">
+      <button id="pauseResume" data-testid="pause-resume">RESUME</button>
+      <button id="pauseSettings" data-testid="pause-settings">SETTINGS</button>
+      <button id="pauseMainMenu" data-testid="pause-main-menu">MAIN MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- Game Over -->
+<div id="gameOver" class="overlay hidden" data-testid="game-over">
+  <div class="go-title">YOU DIED</div>
+  <div class="go-sub" id="goSub">The facility consumed another.</div>
+  <div class="panel-buttons col">
+    <button id="goRestart" data-testid="go-restart">RESTART</button>
+    <button id="goMenu" data-testid="go-menu">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- Victory -->
+<div id="victory" class="overlay hidden" data-testid="victory">
+  <div class="vc-title">YOU SURVIVED</div>
+  <div class="vc-sub">Daylight. For the first time in days.</div>
+  <div class="panel-buttons col">
+    <button id="vcMenu" data-testid="vc-menu">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden" data-testid="hud">
+  <!-- Top Left Stats -->
+  <div class="hud-stats" data-testid="hud-stats">
+    <div class="stat">
+      <div class="stat-label"><span class="stat-icon">♥</span>HEALTH</div>
+      <div class="stat-bar"><div class="stat-fill stat-health" id="healthFill"></div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label"><span class="stat-icon">⚡</span>STAMINA</div>
+      <div class="stat-bar"><div class="stat-fill stat-stamina" id="staminaFill"></div></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label"><span class="stat-icon">▮</span>BATTERY</div>
+      <div class="stat-bar"><div class="stat-fill stat-battery" id="batteryFill"></div></div>
+    </div>
+  </div>
+
+  <!-- Center Crosshair -->
+  <div class="crosshair" data-testid="crosshair">
+    <div class="cx-d cx-t"></div><div class="cx-d cx-b"></div>
+    <div class="cx-d cx-l"></div><div class="cx-d cx-r"></div>
+    <div class="cx-c"></div>
+  </div>
+
+  <!-- Interaction Prompt -->
+  <div id="interactPrompt" class="interact-prompt hidden" data-testid="interact-prompt">
+    <span class="key">[E]</span><span id="interactText">INTERACT</span>
+  </div>
+
+  <!-- Subtitle / Event Log -->
+  <div id="subtitle" class="subtitle hidden" data-testid="subtitle"></div>
+
+  <!-- Objectives -->
+  <div class="objectives" data-testid="objectives">
+    <div class="obj-head">OBJECTIVES</div>
+    <ul id="objList" class="obj-list"></ul>
+  </div>
+
+  <!-- Minimap -->
+  <div class="minimap" data-testid="minimap">
+    <canvas id="minimapCanvas" width="220" height="220"></canvas>
+    <div class="mm-label">FACILITY MAP</div>
+  </div>
+
+  <!-- Flashlight indicator -->
+  <div id="flashIndicator" class="flash-indicator" data-testid="flash-indicator">
+    <span class="fi-dot"></span>FLASHLIGHT
+  </div>
+
+  <!-- Damage vignette -->
+  <div id="damageVignette" class="damage-vignette"></div>
+  <div id="lowHealthOverlay" class="low-health"></div>
+</div>
+
+<!-- Game Canvas -->
+<canvas id="gameCanvas" data-testid="game-canvas"></canvas>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
