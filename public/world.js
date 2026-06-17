@@ -32,6 +32,8 @@ export class World {
         this.collidables = []; // boxes used for collision
         this.interactables = []; // { mesh, type, data, prompt, onInteract }
         this.lights = [];
+        this.mainPowerLights = []; // bright ceiling lights, OFF until generator restored
+        this.facilityPowered = false;
         this.flickerLights = [];
         this.rooms = {}; // name -> { center, bounds, label }
         this.minimapData = null; // for UI minimap renderer
@@ -207,6 +209,25 @@ export class World {
         if (opts.flicker) this.flickerLights.push({ light: L, base: intensity, phase: Math.random() * 10, rate: 0.3 + Math.random() * 1.2, depth: opts.flickerDepth || 0.4 });
         return L;
     }
+
+    // Bright white ceiling light — OFF (intensity 0) until generator restores power.
+    // Placed at room center, casts no shadow (cheap, just floods the room).
+    _mainLight(x, z, targetIntensity = 2.2, distance = 9) {
+        const L = new THREE.PointLight(0xfff6e8, 0, distance, 1.6);
+        L.position.set(x, 2.9, z);
+        this.scene.add(L);
+        this.mainPowerLights.push({ light: L, target: targetIntensity });
+        return L;
+    }
+
+    // Called once when the generator is switched on — ramps all main lights up smoothly.
+    setMainPower(on) {
+        this.facilityPowered = on;
+        this._powerRampStart = performance.now();
+        this._powerRampFrom = this.mainPowerLights.map(p => p.light.intensity);
+        this._powerRampTo   = on ? this.mainPowerLights.map(p => p.target) : this.mainPowerLights.map(() => 0);
+        this._powerRamping  = true;
+    }
     _emergencyFixture(x, y, z) {
         // Red emergency light fixture (emissive cylinder + caged housing)
         const housing = new THREE.Mesh(
@@ -257,6 +278,9 @@ export class World {
         // East end is open — exit gate room attaches here at x=+23
 
         for (let x = -28; x <= 18; x += 8) this._emergencyFixture(x, 2.7, 12.4);
+        this._mainLight(-26, 14, 1.6, 10);
+        this._mainLight(-9,  14, 1.6, 12);
+        this._mainLight(8,   14, 1.6, 12);
         this._sign(-4.5, 2.4, 12.1, 'MAIN CORRIDOR', '#c41e1e', 3.0, 0.8);
 
         // ── West branch corridor  x=-22,  z = -14 to +12 ──
@@ -269,6 +293,7 @@ export class World {
         // South cap z=+12
         this._wall(-22, 12, 3.6, WALL_H, WALL_T);
         for (let z = -10; z <= 8; z += 6) this._emergencyFixture(-22, 2.7, z);
+        this._mainLight(-22, 0, 1.4, 14);
 
         // ── East branch corridor  x=+4,  z = -14 to +12 ──
         this._floor(4, -1, 3.6, 26, this.materials.matTile);
@@ -280,6 +305,7 @@ export class World {
         // South cap z=+12
         this._wall(4, 12, 3.6, WALL_H, WALL_T);
         for (let z = -10; z <= 8; z += 6) this._emergencyFixture(4, 2.7, z);
+        this._mainLight(4, 0, 1.4, 14);
 
         // ── Far north connector  z=-34,  x = -24 to +6 ──
         // Center x = (-24+6)/2 = -9,  length = 30
@@ -365,6 +391,7 @@ export class World {
         this.rooms['Main Entrance'] = { center: new THREE.Vector3(-26, 0, 20.8), w: 9, d: 10 };
         this._addEntranceProps(-26, 20.8);
         this._emergencyFixture(-26, 2.7, 19);
+        this._mainLight(-26, 20.8, 2.0, 9);
 
         // ── RECEPTION ──
         this._floor(16, 20.8, 12, 10, this.materials.matFloor);
@@ -375,6 +402,7 @@ export class World {
         this.rooms['Reception'] = { center: new THREE.Vector3(16, 0, 20.8), w: 12, d: 10 };
         this._addReceptionProps(16, 20.8);
         this._emergencyFixture(16, 2.7, 19);
+        this._mainLight(16, 20.8, 2.2, 10);
 
         // ── WEST BRANCH ROOMS (open from branch west wall x=-23.8) ──
         const wx = -28.8;  // center x = -23.8 - 5
@@ -391,6 +419,7 @@ export class World {
             this.rooms[name] = { center: new THREE.Vector3(wx, 0, cz), w: wrW, d: rD };
             addProps();
             this._emergencyFixture(wx, 2.7, cz);
+            this._mainLight(wx, cz, 2.0, 8);
         };
 
         buildWestRoom(6,   7, 'Security Office',    () => this._addSecurityProps(wx, 6));
@@ -404,6 +433,7 @@ export class World {
         });
         this._addServerProps(wx, -22);
         this._emergencyFixture(wx, 2.7, -22);
+        this._mainLight(wx, -22, 1.8, 9);
 
         // Bridge: branch end z=-14 → server S edge z=-17.5 (len=3.5)
         this._floor(-22, -15.75, 3.6, 3.5, this.materials.matTile);
@@ -432,6 +462,7 @@ export class World {
             this.rooms[name] = { center: new THREE.Vector3(ex, 0, cz), w: erW, d: rD };
             addProps();
             this._emergencyFixture(ex, 2.7, cz);
+            this._mainLight(ex, cz, 2.0, 8);
         };
 
         buildEastRoom(6,   7, 'Storage Room',    () => this._addStorageProps(ex, 6));
@@ -445,6 +476,7 @@ export class World {
         });
         this._addVentilationProps(ex, -22);
         this._emergencyFixture(ex, 2.7, -22);
+        this._mainLight(ex, -22, 1.8, 9);
 
         // East bridges (mirror west)
         this._floor(4, -15.75, 3.6, 3.5, this.materials.matTile);
@@ -459,16 +491,38 @@ export class World {
     }
 
     _buildExitArea() {
-        // Main corridor runs from x=-32 to x=+24 (center -5, width 56)
-        // East end of corridor is at x = -5 + 28 = +23
-        // Exit room: west wall must be at x=+23, width=10, so center x = 23+5 = 28
-        // z=14 matches corridor center exactly — no gap, no step
+        // Exit Gate room: west wall connects to corridor (door W), east wall has
+        // an OPENING (not solid) where the locked gate sits. Behind the gate is a
+        // short escape tunnel leading outside — win trigger at the far end.
         this._roomBox(28, 14, 10, 7, {
             name: 'Exit Gate',
-            doorways: [{ side: 'W', offset: 0, width: 2.2 }]
+            doorways: [
+                { side: 'W', offset: 0, width: 2.2 },  // from corridor
+                { side: 'E', offset: 0, width: 2.6 }   // toward escape tunnel (behind gate)
+            ]
         });
         this._addExitGateProps(28, 14);
         this._emergencyFixture(28, 2.7, 14);
+        this._mainLight(28, 14, 2.2, 9);
+
+        // ── Escape tunnel: x = 33 to 40, z = 14 (continues east through the gate gap) ──
+        // Room east wall is at cx+w/2 = 28+5 = 33, gap there leads into this tunnel
+        const tunnelCX = 36.5, tunnelLen = 7;
+        this._floor(tunnelCX, 14, tunnelLen, 3.2, this.materials.matConcrete);
+        this._ceiling(tunnelCX, 14, tunnelLen, 3.2);
+        this._wall(tunnelCX, 12.4, tunnelLen, WALL_H, WALL_T); // North wall
+        this._wall(tunnelCX, 15.6, tunnelLen, WALL_H, WALL_T); // South wall
+        // West end open (connects to gate room gap) — no wall
+        // East end OPEN — this is the facility exterior, win trigger sits here
+        this._emergencyFixture(34, 2.7, 14);
+        // Faint daylight glow at the tunnel mouth (visual cue: "outside")
+        const exitGlow = new THREE.PointLight(0xcfe8ff, 1.4, 10, 1.6);
+        exitGlow.position.set(40, 2.2, 14);
+        this.scene.add(exitGlow);
+        this._sign(36.5, 2.6, 12.55, 'EXIT TUNNEL', '#4fbc94', 2.4, 0.6);
+
+        // Win trigger zone — stored for game.js to check distance against
+        this.exitTriggerPos = new THREE.Vector3(40, 0, 14);
     }
 
     // ---------- PROPS PER ROOM ----------
@@ -662,41 +716,67 @@ export class World {
     }
 
     _addExitGateProps(cx, cz) {
-        // Locked gate: tall metal bars, requires power+keycard
+        // Gate sits exactly in the room's east wall gap (x = cx+5 = 33)
+        const gateX = cx + 5;
         const gateGroup = new THREE.Group();
+        const gateBarMeshes = []; // explicit list — guarantees removal regardless of parent quirks
+
         for (let i = -3; i <= 3; i++) {
-            const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), this.materials.matMetal);
-            bar.position.set(i * 0.45, 1.3, 0);
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 0.12), this.materials.matMetal);
+            bar.position.set(0, 1.4, i * 0.4);
             bar.castShadow = true;
             gateGroup.add(bar);
+            gateBarMeshes.push(bar);
         }
-        const top = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 0.2), this.materials.matMetal);
-        top.position.set(0, 2.6, 0); gateGroup.add(top);
-        gateGroup.position.set(cx, 0, cz + 3.4);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), this.materials.matMetal);
+        top.position.set(0, 2.8, 0);
+        gateGroup.add(top);
+        gateBarMeshes.push(top);
+
+        gateGroup.position.set(gateX, 0, cz);
         this.scene.add(gateGroup);
-        this.collidables.push(top);
-        gateGroup.children.forEach(c => { if (c.geometry && c.geometry.parameters.height > 2) this.collidables.push(c); });
-        // Console next to gate
+
+        // Frame posts pushed wider than the doorway opening (doorway width=2.6 → ±1.3)
+        // Posts sit OUTSIDE that range entirely so they never intrude on the walkable gap.
+        const frameMat = this.materials.matMetal;
+        const frameSides = [
+            { geo: [0.15, WALL_H, 0.25], pos: [0, WALL_H / 2, 1.55] },   // right post (outside ±1.3 gap)
+            { geo: [0.15, WALL_H, 0.25], pos: [0, WALL_H / 2, -1.55] },  // left post (outside ±1.3 gap)
+            { geo: [0.15, 0.3, 3.4],     pos: [0, WALL_H, 0] }           // top header (above 2.8 bar height)
+        ];
+        frameSides.forEach(f => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(...f.geo), frameMat);
+            m.position.set(gateX, f.pos[1], cz + f.pos[2]);
+            this.scene.add(m);
+            this.collidables.push(m); // frame stays solid permanently — it's the door frame, not the door
+        });
+
+        // Push gate bars into collidables and keep a direct reference for guaranteed removal later
+        gateBarMeshes.forEach(m => this.collidables.push(m));
+        this._gateBarMeshes = gateBarMeshes; // world.js exposes this so game.js can remove by identity
+
+        // Console next to gate (inside the room, near west side of gate)
+        const consoleX = cx + 2.2, consoleZ = cz - 2.4;
         const console = new THREE.Mesh(
             new THREE.BoxGeometry(0.8, 1.2, 0.6),
             this.materials.matComputer
         );
-        console.position.set(cx + 2.2, 0.6, cz + 2.4);
+        console.position.set(consoleX, 0.6, consoleZ);
         console.castShadow = true; this.scene.add(console);
         this.collidables.push(console);
         const screen = new THREE.Mesh(
             new THREE.PlaneGeometry(0.5, 0.3),
             new THREE.MeshStandardMaterial({ color: 0x3a0808, emissive: 0xc41e1e, emissiveIntensity: 1.2 })
         );
-        screen.position.set(cx + 2.2, 0.95, cz + 2.05);
+        screen.position.set(consoleX, 0.95, consoleZ + 0.31);
         this.scene.add(screen);
         this.interactables.push({
             mesh: console, type: 'exit_console',
             prompt: 'UNLOCK EXIT',
-            data: { gate: gateGroup, screen },
+            data: { gate: gateGroup, screen, gateX, gateZ: cz, gateBarMeshes },
             bobBase: null
         });
-        this._sign(cx, 2.4, cz - 2.95, 'EMERGENCY EXIT', '#c41e1e', 3.8, 0.8);
+        this._sign(cx, 2.4, cz - 3.4, 'EMERGENCY EXIT', '#c41e1e', 3.8, 0.8);
         this._emergencyFixture(cx, 2.7, cz);
     }
 
@@ -895,6 +975,16 @@ export class World {
 
     // ---------- UPDATE LOOP ----------
     update(dt, time) {
+        // generator power ramp — smoothly fade ceiling lights in/out over 3 seconds
+        if (this._powerRamping) {
+            const elapsed = (performance.now() - this._powerRampStart) / 1000;
+            const t = Math.min(1, elapsed / 3.0);
+            const eased = t * t * (3 - 2 * t); // smoothstep
+            this.mainPowerLights.forEach((p, i) => {
+                p.light.intensity = this._powerRampFrom[i] + (this._powerRampTo[i] - this._powerRampFrom[i]) * eased;
+            });
+            if (t >= 1) this._powerRamping = false;
+        }
         // flicker lights
         this.flickerLights.forEach(f => {
             const v = Math.sin(time * f.rate * 8 + f.phase) * 0.4 + Math.sin(time * f.rate * 23 + f.phase * 2) * 0.3;

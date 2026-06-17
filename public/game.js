@@ -161,8 +161,8 @@ function buildRun() {
     // spawn player in entrance (new entrance center is -26, 20.8)
     player.setSpawn(-26, 20.8);
 
-    // creature spawns deep in facility (Server Room area)
-    creature.setSpawn(-28.8, -18);
+    // creature spawns in the west branch (Security Office area) — start of its patrol loop
+    creature.setSpawn(-22, 6);
 
     ui.initMinimap(world);
 
@@ -311,8 +311,8 @@ function buildRun() {
             it.data.panel.material.emissiveIntensity = 1.5;
             audio.startGeneratorHum();
             world.fanSpeed = 3.5;
-            // brighten ambient & some lights
-            world.lights.forEach(L => { if (L.color.r < 0.5) L.intensity = Math.max(L.intensity, 0.6); });
+            // FULL FACILITY POWER — all ceiling lights ramp up over 3 seconds
+            world.setMainPower(true);
             player.facilityPowered = true;
             objectives[2].state = 'done';
             objectives[3].state = 'current';
@@ -331,18 +331,19 @@ function buildRun() {
                 ui.showSubtitle('Requires SECURITY CLEARANCE.', 3);
                 return;
             }
-            // unlock gate — animate gate rising
+            // unlock gate — animate bars rising into the header (frame posts stay fixed)
             const gate = it.data.gate;
             const start = gate.position.y;
-            const end = start + 2.7;
+            const end = start + 2.9;
             const t0 = performance.now();
             function anim() {
                 const t = Math.min(1, (performance.now() - t0) / 2000);
                 gate.position.y = start + (end - start) * t;
                 if (t < 1) requestAnimationFrame(anim);
                 else {
-                    // remove collidables that were the bars
+                    // remove only the gate bars from collidables (frame posts remain solid)
                     world.collidables = world.collidables.filter(c => c.parent !== gate);
+                    world.exitUnlocked = true;
                 }
             }
             anim();
@@ -381,9 +382,9 @@ function buildRun() {
             if (activeInteractable) ui.showInteract(activeInteractable.prompt);
             else ui.hideInteract();
 
-            // win condition: stand on exit zone with gate open + powered
+            // win condition: reach the end of escape tunnel with gate open + powered
             const ppos = player.controls.getObject().position;
-            if (objectives[4].state === 'current' && ppos.x > 30.5 && Math.abs(ppos.z - 14) < 4) {
+            if (objectives[4].state === 'current' && ppos.x > 38 && Math.abs(ppos.z - 14) < 2) {
                 objectives[4].state = 'done';
                 ui.renderObjectives(objectives);
                 ui.showVictory();

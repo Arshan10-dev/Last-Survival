@@ -21,7 +21,9 @@ export class Creature {
 
     this._buildMesh();
     this._setupPatrol();
-    this.setSpawn(-22, -22);
+    // Spawn near the start of the patrol loop (west branch / Security Office area)
+    this.setSpawn(-22, 6);
+    this._lastPos = this.mesh.position.clone();
   }
 
   _buildMesh() {
@@ -67,46 +69,56 @@ export class Creature {
   }
 
   _setupPatrol() {
-    // Patrol waypoints matching corrected room centers
+    // Full facility loop — matches the corrected layout (west rooms x=-28.8, east rooms x=7.2)
+    // Path: main corridor → west branch down → bridges → north connector → east branch up → back
     this.waypoints = [
-      new THREE.Vector3(-22,   0,  10),   // west branch top
-      new THREE.Vector3(-28.8, 0,   6),   // Security Office
-      new THREE.Vector3(-28.8, 0,  -2),   // Medical Bay
-      new THREE.Vector3(-22,   0,  -5),   // west branch mid
-      new THREE.Vector3(-28.8, 0, -10),   // Maintenance
-      new THREE.Vector3(-28.8, 0, -18),   // Server Room
-      new THREE.Vector3(-22,   0, -27),   // bridge
-      new THREE.Vector3(-9,    0, -34),   // north connector
-      new THREE.Vector3(4,     0, -27),   // east bridge
-      new THREE.Vector3(10.8,  0, -18),   // Ventilation
-      new THREE.Vector3(10.8,  0, -10),   // Generator
-      new THREE.Vector3(4,     0,  -5),   // east branch mid
-      new THREE.Vector3(10.8,  0,   6),   // Storage
-      new THREE.Vector3(4,     0,  10),   // east branch top
-      new THREE.Vector3(-5,    0,  14),   // main corridor center
+      new THREE.Vector3(-26,   0,  14),   // main corridor, near entrance
+      new THREE.Vector3(-22,   0,  10),   // west branch entry
+      new THREE.Vector3(-22,   0,   6),   // west branch, level w/ Security
+      new THREE.Vector3(-22,   0,  -2),   // west branch, level w/ Medical
+      new THREE.Vector3(-22,   0, -10),   // west branch, level w/ Maintenance
+      new THREE.Vector3(-22,   0, -14),   // west branch end (before bridge)
+      new THREE.Vector3(-22,   0, -22),   // server room area (bridge + room exterior)
+      new THREE.Vector3(-22,   0, -29),   // second bridge, toward connector
+      new THREE.Vector3(-15,   0, -34),   // north connector, west half
+      new THREE.Vector3(-3,    0, -34),   // north connector, east half
+      new THREE.Vector3(4,     0, -29),   // east bridge
+      new THREE.Vector3(4,     0, -22),   // ventilation area
+      new THREE.Vector3(4,     0, -14),   // east branch end
+      new THREE.Vector3(4,     0, -10),   // east branch, level w/ Generator
+      new THREE.Vector3(4,     0,  -2),   // east branch, level w/ Lab
+      new THREE.Vector3(4,     0,   6),   // east branch, level w/ Storage
+      new THREE.Vector3(4,     0,  10),   // east branch entry
+      new THREE.Vector3(8,     0,  14),   // main corridor, east side
+      new THREE.Vector3(20,    0,  14),   // main corridor, near reception/exit
+      new THREE.Vector3(-5,    0,  14),   // main corridor center (back toward west)
     ];
     this.waypointIndex = 0;
     this.target.copy(this.waypoints[0]);
+    this._stuckTimer = 0;
   }
 
-  // can creature see player?
+  // Creature is ATTRACTED BY LIGHT ONLY — flashlight off means it can't sense the player at all.
   _canSeePlayer(playerPos, flashlightOn, camDir) {
+    if (!flashlightOn) return false; // flashlight is the ONLY way it notices the player
+
     const dx = playerPos.x - this.mesh.position.x;
     const dz = playerPos.z - this.mesh.position.z;
-    const dist = Math.sqrt(dx*dx + dz*dz);
+    const dist = Math.sqrt(dx * dx + dz * dz);
 
-    let effectiveRadius = this.detectionRadius;
-    // Flashlight pointed at creature increases detection (reacts to light)
-    if (flashlightOn) {
-      const toCreature = new THREE.Vector3(-dx, 0, -dz).normalize();
-      const camDirXZ = new THREE.Vector3(camDir.x, 0, camDir.z).normalize();
-      const dot = camDirXZ.dot(toCreature);
-      if (dot > 0.85) effectiveRadius += 6; // beam hits creature
-    }
+    // Base flashlight detection range (always active once beam is on)
+    let effectiveRadius = 11;
+
+    // If the beam is pointed roughly toward the creature, range extends further
+    // (simulates the beam actually hitting it, not just being on)
+    const toCreature = new THREE.Vector3(-dx, 0, -dz).normalize();
+    const camDirXZ = new THREE.Vector3(camDir.x, 0, camDir.z).normalize();
+    const dot = camDirXZ.dot(toCreature);
+    if (dot > 0.7) effectiveRadius = 18; // beam roughly aimed at it — much further reach
 
     if (dist > effectiveRadius) return false;
 
-    // line of sight raycast against world collidables (walls)
+    // line of sight raycast against world collidables (walls) — light can't pass through walls
     const origin = this.mesh.position.clone(); origin.y = 1.5;
     const dir = playerPos.clone(); dir.y = 1.6;
     dir.sub(origin); const d = dir.length(); dir.normalize();
@@ -115,13 +127,8 @@ export class Creature {
     return hits.length === 0;
   }
 
-  // hearing: if player sprints close, alert
+  // Hearing is disabled — creature reacts to flashlight ONLY, not footsteps/sprinting.
   _heardPlayer(playerPos, playerSprinting) {
-    const dx = playerPos.x - this.mesh.position.x;
-    const dz = playerPos.z - this.mesh.position.z;
-    const dist = Math.sqrt(dx*dx + dz*dz);
-    if (playerSprinting && dist < 14) return true;
-    if (dist < 5) return true;
     return false;
   }
 
@@ -130,56 +137,79 @@ export class Creature {
     const myPos = this.mesh.position;
     const dx = targetPos.x - myPos.x;
     const dz = targetPos.z - myPos.z;
-    const d = Math.sqrt(dx*dx + dz*dz);
+    const d = Math.sqrt(dx * dx + dz * dz);
     if (d < 0.05) return true;
     const vx = (dx / d) * speed;
     const vz = (dz / d) * speed;
     const next = new THREE.Vector3(myPos.x + vx * dt, 0, myPos.z + vz * dt);
 
-    // wall avoidance: check small forward radius
+    // Wall avoidance — only check collidables within a reasonable range (perf + avoids
+    // far-away furniture AABBs interfering with corridor pathing)
     const r = 0.4;
+    const checkRange = 3.5; // only test walls within this distance of the creature
     const aabb = new THREE.Box3();
     for (const c of this.world.collidables) {
+      // cheap distance pre-check using object position before computing full AABB
+      const cx = c.position.x, cz = c.position.z;
+      if (Math.abs(cx - myPos.x) > checkRange || Math.abs(cz - myPos.z) > checkRange) continue;
       aabb.setFromObject(c);
       if (next.x > aabb.min.x - r && next.x < aabb.max.x + r &&
           next.z > aabb.min.z - r && next.z < aabb.max.z + r) {
-        // push out
         const dxL = next.x - (aabb.min.x - r), dxR = (aabb.max.x + r) - next.x;
         const dzL = next.z - (aabb.min.z - r), dzR = (aabb.max.z + r) - next.z;
         const m = Math.min(dxL, dxR, dzL, dzR);
-        if (m === dxL) next.x = aabb.min.x - r;
+        if      (m === dxL) next.x = aabb.min.x - r;
         else if (m === dxR) next.x = aabb.max.x + r;
         else if (m === dzL) next.z = aabb.min.z - r;
-        else next.z = aabb.max.z + r;
+        else                next.z = aabb.max.z + r;
       }
     }
     myPos.x = next.x; myPos.z = next.z;
+
     // face direction of motion
     const desiredYaw = Math.atan2(dx, dz);
     let dy = desiredYaw - this.mesh.rotation.y;
-    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy >  Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.mesh.rotation.y += dy * Math.min(1, dt * 6);
+
     return d < 0.4;
+  }
+
+  // Detects when the creature hasn't actually moved for a while (stuck on geometry)
+  // and forces it to skip to the next waypoint so it never freezes in place.
+  _checkStuck(dt) {
+    const moved = this.mesh.position.distanceTo(this._lastPos);
+    if (moved < 0.03) {
+      this._stuckTimer += dt;
+    } else {
+      this._stuckTimer = 0;
+    }
+    this._lastPos.copy(this.mesh.position);
+    if (this._stuckTimer > 2.5) {
+      this._stuckTimer = 0;
+      if (this.state === STATE.PATROL || this.state === STATE.LOST) {
+        this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
+        this.target.copy(this.waypoints[this.waypointIndex]);
+      }
+    }
   }
 
   update(dt, time, player) {
     if (!this.alive) return;
+    this._checkStuck(dt);
+
     const playerPos = player.controls.getObject().position;
     const camDir = new THREE.Vector3();
     player.camera.getWorldDirection(camDir);
 
+    // Detection is flashlight-only: if it's off, the creature can't sense the player at all
     const sees = this._canSeePlayer(playerPos, player.flashOn, camDir);
-    const heard = this._heardPlayer(playerPos, player.input.sprint && (player.input.f || player.input.b || player.input.l || player.input.r));
 
     if (sees) {
       this.lastSeen = playerPos.clone();
       this.lastSeenT = time;
       this.state = STATE.CHASE;
-    } else if (heard && this.state !== STATE.CHASE) {
-      this.lastSeen = playerPos.clone();
-      this.lastSeenT = time;
-      this.state = STATE.SEARCH;
     }
 
     // pulse eyes (intensity based on state)
@@ -226,16 +256,21 @@ export class Creature {
         // attack if close
         const dx = playerPos.x - this.mesh.position.x;
         const dz = playerPos.z - this.mesh.position.z;
-        const dist = Math.sqrt(dx*dx + dz*dz);
+        const dist = Math.sqrt(dx * dx + dz * dz);
         this.attackCooldown -= dt;
         if (dist < 1.4 && this.attackCooldown <= 0) {
           player.takeDamage(18);
           this.attackCooldown = 1.2;
           if (player.health <= 0) player.dead = true;
         }
-        // lose sight
-        if (!sees && time - this.lastSeenT > 3.5) {
-          this.state = STATE.SEARCH;
+        // Flashlight OFF = creature instantly loses interest (per design: light-only detection)
+        if (!player.flashOn) {
+          this.state = STATE.LOST;
+          this.idleT = 0;
+        } else if (!sees && time - this.lastSeenT > 3.5) {
+          // Flashlight still on but beam not on creature / lost line of sight for a while
+          this.state = STATE.LOST;
+          this.idleT = 0;
         }
         break;
       }
