@@ -334,6 +334,14 @@ function buildRun() {
             // unlock gate — animate bars rising into the header (frame posts stay fixed)
             const gate = it.data.gate;
             const gateBarMeshes = it.data.gateBarMeshes;
+
+            // Remove bars from collision IMMEDIATELY — don't wait for animation to finish.
+            // This guarantees the path is walkable the instant the player unlocks the gate,
+            // regardless of any matrixWorld/timing edge cases during the rise animation.
+            world.collidables = world.collidables.filter(c => !gateBarMeshes.includes(c));
+            world.exitUnlocked = true;
+            ui.showSubtitle('Exit gate unlocked. Go!', 3);
+
             const start = gate.position.y;
             const end = start + 2.9;
             const t0 = performance.now();
@@ -341,13 +349,6 @@ function buildRun() {
                 const t = Math.min(1, (performance.now() - t0) / 2000);
                 gate.position.y = start + (end - start) * t;
                 if (t < 1) requestAnimationFrame(anim);
-                else {
-                    // Guaranteed removal: filter out every mesh by direct identity match,
-                    // not by parent-pointer (which can silently fail). This permanently
-                    // clears the bars from collision — only the door frame remains solid.
-                    world.collidables = world.collidables.filter(c => !gateBarMeshes.includes(c));
-                    world.exitUnlocked = true;
-                }
             }
             anim();
             it.data.screen.material.emissive = new THREE.Color(0x4fbc94);

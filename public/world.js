@@ -228,6 +228,30 @@ export class World {
         this._powerRampTo   = on ? this.mainPowerLights.map(p => p.target) : this.mainPowerLights.map(() => 0);
         this._powerRamping  = true;
     }
+
+    // Visible ceiling fixture mesh (chandelier-style glow disc) — purely visual, paired with
+    // a _mainLight() point light placed at the same spot for actual illumination.
+    _ceilingFixture(x, z) {
+        const housing = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.5, 0.5, 0.08, 24),
+            new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 0.5, metalness: 0.6 })
+        );
+        housing.position.set(x, WALL_H - 0.05, z);
+        this.scene.add(housing);
+
+        const glowDisc = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.42, 0.42, 0.03, 24),
+            new THREE.MeshStandardMaterial({
+                color: 0xfff6e0, emissive: 0xfff2c8, emissiveIntensity: 0,
+                roughness: 0.3
+            })
+        );
+        glowDisc.position.set(x, WALL_H - 0.1, z);
+        this.scene.add(glowDisc);
+        // Track so it brightens in sync with the room's main power light
+        this.mainPowerLights.push({ light: { get intensity() { return glowDisc.material.emissiveIntensity; }, set intensity(v) { glowDisc.material.emissiveIntensity = v; } }, target: 1.6 });
+        return { housing, glowDisc };
+    }
     _emergencyFixture(x, y, z) {
         // Red emergency light fixture (emissive cylinder + caged housing)
         const housing = new THREE.Mesh(
@@ -503,7 +527,9 @@ export class World {
         });
         this._addExitGateProps(28, 14);
         this._emergencyFixture(28, 2.7, 14);
-        this._mainLight(28, 14, 2.2, 9);
+        this._mainLight(28, 14, 3.2, 11);
+        // Central ceiling fixture (chandelier-style) — visible warm glow source at room center
+        this._ceilingFixture(28, 14);
 
         // ── Escape tunnel: x = 33 to 40, z = 14 (continues east through the gate gap) ──
         // Room east wall is at cx+w/2 = 28+5 = 33, gap there leads into this tunnel
@@ -515,6 +541,10 @@ export class World {
         // West end open (connects to gate room gap) — no wall
         // East end OPEN — this is the facility exterior, win trigger sits here
         this._emergencyFixture(34, 2.7, 14);
+        // Main ceiling lights spaced along the tunnel (like the corridor has)
+        this._mainLight(34.5, 14, 2.0, 7);
+        this._mainLight(38,   14, 1.8, 7);
+        this._ceilingFixture(34.5, 14);
         // Faint daylight glow at the tunnel mouth (visual cue: "outside")
         const exitGlow = new THREE.PointLight(0xcfe8ff, 1.4, 10, 1.6);
         exitGlow.position.set(40, 2.2, 14);
@@ -736,13 +766,13 @@ export class World {
         gateGroup.position.set(gateX, 0, cz);
         this.scene.add(gateGroup);
 
-        // Frame posts pushed wider than the doorway opening (doorway width=2.6 → ±1.3)
-        // Posts sit OUTSIDE that range entirely so they never intrude on the walkable gap.
+        // Frame posts pushed well outside the doorway opening (doorway width=2.6 → ±1.3)
+        // Extra margin added so there is zero chance of overlap with the walkable path.
         const frameMat = this.materials.matMetal;
         const frameSides = [
-            { geo: [0.15, WALL_H, 0.25], pos: [0, WALL_H / 2, 1.55] },   // right post (outside ±1.3 gap)
-            { geo: [0.15, WALL_H, 0.25], pos: [0, WALL_H / 2, -1.55] },  // left post (outside ±1.3 gap)
-            { geo: [0.15, 0.3, 3.4],     pos: [0, WALL_H, 0] }           // top header (above 2.8 bar height)
+            { geo: [0.15, WALL_H, 0.2], pos: [0, WALL_H / 2, 1.7] },   // right post — well clear of ±1.3 gap
+            { geo: [0.15, WALL_H, 0.2], pos: [0, WALL_H / 2, -1.7] },  // left post — well clear of ±1.3 gap
+            { geo: [0.15, 0.3, 3.6],    pos: [0, WALL_H, 0] }          // top header (above 2.8 bar height)
         ];
         frameSides.forEach(f => {
             const m = new THREE.Mesh(new THREE.BoxGeometry(...f.geo), frameMat);
