@@ -333,6 +333,7 @@ function buildRun() {
             }
             // unlock gate — animate bars rising into the header (frame posts stay fixed)
             const gate = it.data.gate;
+            const gateBarMeshes = it.data.gateBarMeshes;
             const start = gate.position.y;
             const end = start + 2.9;
             const t0 = performance.now();
@@ -341,8 +342,10 @@ function buildRun() {
                 gate.position.y = start + (end - start) * t;
                 if (t < 1) requestAnimationFrame(anim);
                 else {
-                    // remove only the gate bars from collidables (frame posts remain solid)
-                    world.collidables = world.collidables.filter(c => c.parent !== gate);
+                    // Guaranteed removal: filter out every mesh by direct identity match,
+                    // not by parent-pointer (which can silently fail). This permanently
+                    // clears the bars from collision — only the door frame remains solid.
+                    world.collidables = world.collidables.filter(c => !gateBarMeshes.includes(c));
                     world.exitUnlocked = true;
                 }
             }
