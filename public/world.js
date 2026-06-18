@@ -1012,6 +1012,7 @@ export class World {
             }
         });
     }
+
     removeInteractable(it) {
         this.scene.remove(it.mesh);
         this.interactables = this.interactables.filter(x => x !== it);
