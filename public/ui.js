@@ -160,6 +160,9 @@ export class UI {
       { x: 4,     z: -29.35, w: 3.6, d: 5.7  },
       // Exit gate
       { x: 28,    z: 14,     w: 10,  d: 7    },
+      // Central facility core (between the two branches) — internal structure/machinery,
+      // not walkable, but rendered so the map doesn't show a dead black void in the middle
+      { x: -9,    z: -1,     w: 22,  d: 26   },
     ];
   }
   renderMinimap(playerPos, playerYaw, creaturePos, objectiveTarget) {

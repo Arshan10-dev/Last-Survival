@@ -202,9 +202,16 @@ export class Player {
     // ── Collision ─────────────────────────────────────────────────────────────
     _collide(pos) {
         const r = PLAYER_RADIUS;
+        // Player occupies roughly floor (y=0) to head height (~1.9m). Anything entirely
+        // above or below this range (like a door header near the ceiling, or a floor
+        // decal) should NOT block movement — only things the body actually intersects.
+        const playerFeet = 0.05, playerHead = 1.9;
         const box = new THREE.Box3();
         for (const c of this.world.collidables) {
             box.setFromObject(c);
+            // Y-axis check FIRST: skip entirely if there's no vertical overlap with the player's body
+            if (box.max.y < playerFeet || box.min.y > playerHead) continue;
+
             const minX = box.min.x - r, maxX = box.max.x + r;
             const minZ = box.min.z - r, maxZ = box.max.z + r;
             if (pos.x > minX && pos.x < maxX && pos.z > minZ && pos.z < maxZ) {

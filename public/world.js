@@ -974,6 +974,18 @@ export class World {
         );
         this.scene.add(hemi);
 
+        // Central facility core — non-walkable internal structure between the two
+        // branch corridors. A few low warm point lights here give the impression of
+        // internal machinery/utility systems rather than a dead empty void.
+        const coreLights = [
+            { x: -16, z: 6 },  { x: -16, z: -6 },
+            { x: -2,  z: 6 },  { x: -2,  z: -6 },
+            { x: -9,  z: 0 },
+        ];
+        coreLights.forEach(p => {
+            this._light(0xff8844, 0.5, p.x, 1.6, p.z, 6, 1.8, { flicker: true, flickerDepth: 0.5 });
+        });
+
         // dust particles in air
         const count = 800;
         const geom = new THREE.BufferGeometry();
