@@ -146,7 +146,7 @@ export class UI {
       { x: -28.8, z: 6,      w: 10,  d: 7    }, // Security Office
       { x: -28.8, z: -2,     w: 10,  d: 7    }, // Medical Bay
       { x: -28.8, z: -10,    w: 10,  d: 7    }, // Maintenance
-      { x: -28.8, z: -22,    w: 10,  d: 9    }, // Server Room
+      { x: -22,   z: -22,    w: 10,  d: 9    }, // Server Room
       // West bridges
       { x: -22,   z: -15.75, w: 3.6, d: 3.5  },
       { x: -22,   z: -29.35, w: 3.6, d: 5.7  },
@@ -154,15 +154,14 @@ export class UI {
       { x: 7.2,   z: 6,      w: 10,  d: 7    }, // Storage
       { x: 7.2,   z: -2,     w: 10,  d: 7    }, // Laboratory
       { x: 7.2,   z: -10,    w: 10,  d: 7    }, // Generator
-      { x: 7.2,   z: -22,    w: 10,  d: 9    }, // Ventilation
+      { x: 4,     z: -22,    w: 10,  d: 9    }, // Ventilation
       // East bridges
       { x: 4,     z: -15.75, w: 3.6, d: 3.5  },
       { x: 4,     z: -29.35, w: 3.6, d: 5.7  },
       // Exit gate
       { x: 28,    z: 14,     w: 10,  d: 7    },
-      // Central facility core (between the two branches) — internal structure/machinery,
-      // not walkable, but rendered so the map doesn't show a dead black void in the middle
-      { x: -9,    z: -1,     w: 22,  d: 26   },
+      // Central Reception (was a dead void, now a real furnished room)
+      { x: -9,    z: 2,      w: 22.4, d: 10  },
     ];
   }
   renderMinimap(playerPos, playerYaw, creaturePos, objectiveTarget) {

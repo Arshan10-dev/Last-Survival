@@ -96,6 +96,7 @@ export class World {
     _buildAll() {
         this._buildSpine();
         this._buildRooms();
+        this._buildCentralReception();
         this._buildExitArea();
         this._buildAtmosphere();
     }
@@ -310,8 +311,8 @@ export class World {
         // ── West branch corridor  x=-22,  z = -14 to +12 ──
         this._floor(-22, -1, 3.6, 26, this.materials.matTile);
         this._ceiling(-22, -1, 3.6, 26);
-        // East wall x=-20.2 — CLOSED (no rooms on right side of west branch)
-        this._wall(-20.2, -1, WALL_T, WALL_H, 26);
+        // East wall x=-20.2 — gap at z=2 connects to central reception room
+        this._wallWithGaps(-20.2, -1, 26, false, [2]);
         // West wall x=-23.8 — gaps at z=+6, -2, -10 where rooms open to the LEFT
         this._wallWithGaps(-23.8, -1, 26, false, [6, -2, -10]);
         // South cap z=+12
@@ -322,8 +323,8 @@ export class World {
         // ── East branch corridor  x=+4,  z = -14 to +12 ──
         this._floor(4, -1, 3.6, 26, this.materials.matTile);
         this._ceiling(4, -1, 3.6, 26);
-        // West wall x=+2.2 — gaps at z=+6, -2, -10 where rooms open to the RIGHT
-        this._wallWithGaps(2.2, -1, 26, false, [6, -2, -10]);
+        // West wall x=+2.2 — gaps at z=6,-2,-10 (rooms) plus z=2 (central reception room)
+        this._wallWithGaps(2.2, -1, 26, false, [6, -2, -10, 2]);
         // East wall x=+5.8 — CLOSED (no rooms on right side of east branch)
         this._wall(5.8, -1, WALL_T, WALL_H, 26);
         // South cap z=+12
@@ -450,16 +451,22 @@ export class World {
         buildWestRoom(-2,  7, 'Medical Bay',        () => this._addMedicalProps(wx, -2));
         buildWestRoom(-10, 7, 'Maintenance Tunnel', () => this._addMaintenanceProps(wx, -10));
 
-        // Server Room (fully enclosed, south door to bridge)
-        this._roomBox(wx, -22, wrW, 9, {
+        // Server Room — positioned at the BRANCH CENTER (x=-22) so its south doorway
+        // aligns perfectly with the bridge corridor below it. Previously this room was
+        // at the same x as the other west rooms (-28.8) while its door+bridge were built
+        // at x=-22 — a 6.8 unit misalignment that made the doorway open into a dark,
+        // disconnected void instead of a walkable path.
+        const serverX = -22;
+        this._roomBox(serverX, -22, wrW, 9, {
             name: 'Server Room',
             doorways: [{ side: 'S', offset: 0, width: 2.2 }]
         });
-        this._addServerProps(wx, -22);
-        this._emergencyFixture(wx, 2.7, -22);
-        this._mainLight(wx, -22, 1.8, 9);
+        this._addServerProps(serverX, -22);
+        this._emergencyFixture(serverX, 2.7, -22);
+        this._mainLight(serverX, -22, 1.8, 9);
 
-        // Bridge: branch end z=-14 → server S edge z=-17.5 (len=3.5)
+        // Bridge: branch end z=-14 → server S edge z=-17.5 (len=3.5) — now correctly
+        // aligned under the room since both share x=-22
         this._floor(-22, -15.75, 3.6, 3.5, this.materials.matTile);
         this._ceiling(-22, -15.75, 3.6, 3.5);
         this._wall(-23.8, -15.75, WALL_T, WALL_H, 3.5);
@@ -493,16 +500,18 @@ export class World {
         buildEastRoom(-2,  7, 'Laboratory Wing', () => this._addLabProps(ex, -2));
         buildEastRoom(-10, 7, 'Generator Room',  () => this._addGeneratorProps(ex, -10));
 
-        // Ventilation (fully enclosed, south door to bridge)
-        this._roomBox(ex, -22, erW, 9, {
+        // Ventilation Section — positioned at branch center (x=4) so its south
+        // doorway aligns with the bridge below it (same fix as Server Room)
+        const ventX = 4;
+        this._roomBox(ventX, -22, erW, 9, {
             name: 'Ventilation Section',
             doorways: [{ side: 'S', offset: 0, width: 2.2 }]
         });
-        this._addVentilationProps(ex, -22);
-        this._emergencyFixture(ex, 2.7, -22);
-        this._mainLight(ex, -22, 1.8, 9);
+        this._addVentilationProps(ventX, -22);
+        this._emergencyFixture(ventX, 2.7, -22);
+        this._mainLight(ventX, -22, 1.8, 9);
 
-        // East bridges (mirror west)
+        // East bridges (mirror west) — correctly aligned under the room since both share x=4
         this._floor(4, -15.75, 3.6, 3.5, this.materials.matTile);
         this._ceiling(4, -15.75, 3.6, 3.5);
         this._wall(2.2, -15.75, WALL_T, WALL_H, 3.5);
@@ -512,6 +521,73 @@ export class World {
         this._wall(2.2, -29.35, WALL_T, WALL_H, 5.7);
         this._wall(5.8, -29.35, WALL_T, WALL_H, 5.7);
         this._emergencyFixture(4, 2.7, -29.35);
+    }
+
+    // ── Central Reception: fills the dead void between west/east branches with a
+    // proper walkable room. Connects to both branches via gaps at z=2 in their
+    // shared walls. Furnished like a waiting/break area — desk, table, chairs.
+    _buildCentralReception() {
+        const cx = -9, cz = 2, w = 22.4, d = 10;
+        const halfW = w / 2, halfD = d / 2;
+
+        this._floor(cx, cz, w, d, this.materials.matTile);
+        this._ceiling(cx, cz, w, d);
+        // North wall (full span, no doorways needed here)
+        this._wall(cx, cz - halfD, w, WALL_H, WALL_T);
+        // South wall (full span)
+        this._wall(cx, cz + halfD, w, WALL_H, WALL_T);
+        // West and East walls are OMITTED — they're shared with the branch corridor
+        // walls (x=-20.2 and x=+2.2) which already have gaps cut at z=2 for this room.
+
+        this.rooms['Central Reception'] = { center: new THREE.Vector3(cx, 0, cz), w, d };
+
+        // ── Lighting: bright, evenly spaced (this was the darkest dead zone before) ──
+        this._mainLight(cx - 6, cz, 2.2, 9);
+        this._mainLight(cx,     cz, 2.4, 10);
+        this._mainLight(cx + 6, cz, 2.2, 9);
+        this._ceilingFixture(cx - 6, cz);
+        this._ceilingFixture(cx,     cz);
+        this._ceilingFixture(cx + 6, cz);
+        this._emergencyFixture(cx - 9, 2.7, cz - 3);
+        this._emergencyFixture(cx + 9, 2.7, cz - 3);
+
+        // ── Furniture: reception desk facing the main corridor side, plus a
+        // break-area table with chairs as requested ──
+        this._desk(cx - 7, cz - 1.5, 3.0);
+        this._chair(cx - 7, cz - 0.1);
+        this._monitor(cx - 7.7, cz - 1.7, 0.9);
+        this._monitor(cx - 6.3, cz - 1.7, 0.9);
+
+        // Central break table with four chairs around it
+        const tableTop = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.1, 1.1, 0.08, 24),
+            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.55, metalness: 0.2 })
+        );
+        tableTop.position.set(cx, 0.92, cz);
+        tableTop.castShadow = tableTop.receiveShadow = true;
+        this.scene.add(tableTop);
+        this.collidables.push(tableTop);
+        const tableLeg = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.1, 0.12, 0.9, 12),
+            this.materials.matMetal
+        );
+        tableLeg.position.set(cx, 0.46, cz);
+        this.scene.add(tableLeg);
+        [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]].forEach(([dx, dz]) => {
+            this._chair(cx + dx, cz + dz);
+        });
+
+        // Side furniture — crates, cabinet, pipes for atmosphere/clutter
+        this._crate(cx + 7, cz - 3);
+        this._crate(cx + 7.5, cz - 2.4);
+        this._cabinet(cx - 9, cz + 3);
+        this._cabinet(cx + 9, cz + 3);
+        this._pipes(cx - 9.5, cz - 3.5);
+        this._pipes(cx + 9.5, cz - 3.5);
+        this._waterPuddle(cx + 3, cz + 3.2, 1.8);
+
+        this._sign(cx, 2.4, cz - halfD + 0.05, 'CENTRAL ATRIUM', '#c41e1e', 4.2, 0.8);
+        this._note(cx - 1.2, 0.97, cz - 0.2, 'BREAK ROOM');
     }
 
     _buildExitArea() {
@@ -973,18 +1049,6 @@ export class World {
             0.35        // visible but moody — flashlight still matters
         );
         this.scene.add(hemi);
-
-        // Central facility core — non-walkable internal structure between the two
-        // branch corridors. A few low warm point lights here give the impression of
-        // internal machinery/utility systems rather than a dead empty void.
-        const coreLights = [
-            { x: -16, z: 6 },  { x: -16, z: -6 },
-            { x: -2,  z: 6 },  { x: -2,  z: -6 },
-            { x: -9,  z: 0 },
-        ];
-        coreLights.forEach(p => {
-            this._light(0xff8844, 0.5, p.x, 1.6, p.z, 6, 1.8, { flicker: true, flickerDepth: 0.5 });
-        });
 
         // dust particles in air
         const count = 800;

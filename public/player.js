@@ -71,10 +71,10 @@ export class Player {
         this.flash = new THREE.SpotLight(
             0xfff5e0,      // warm white
             0,             // starts off
-            30,            // range (meters)
+            34,            // range (meters)
             Math.PI / 3.2, // wide ~56° cone
             0.88,          // penumbra: near 1 = very soft edge, no visible circle
-            1.2            // decay
+            1.0            // decay — lower = light reaches further/brighter on distant walls
         );
         this.flash.castShadow = true;
         this.flash.shadow.mapSize.set(1024, 1024);
@@ -141,7 +141,7 @@ export class Player {
                     float r = length(vP.xz) / 1.6;
                     float radial = 1.0 - smoothstep(0.0, 1.0, r);
                     float along  = smoothstep(0.0, -6.0, vP.y) * (1.0 - smoothstep(-5.0, -8.0, vP.y));
-                    float a      = radial * along * 0.06 * uIntensity;
+                    float a      = radial * along * 0.08 * uIntensity;
                     gl_FragColor = vec4(1.0, 0.96, 0.88, a);
                 }`
         });
@@ -187,7 +187,7 @@ export class Player {
     toggleFlash() {
         if (this.battery <= 0) return;
         this.flashOn = !this.flashOn;
-        this.flash.intensity = this.flashOn ? 14 : 0;
+        this.flash.intensity = this.flashOn ? 22 : 0;
         this._beamMat.uniforms.uIntensity.value = this.flashOn ? 1.0 : 0;
         this.audio?.click();
     }
@@ -292,7 +292,7 @@ export class Player {
         if (this.flashOn && this.battery <= 0) { this.flashOn = false; }
 
         // Flashlight intensity
-        const targetI = this.flashOn ? 14 : 0;
+        const targetI = this.flashOn ? 22 : 0;
         this.flash.intensity = targetI;
         this._beamMat.uniforms.uIntensity.value +=
             ((this.flashOn ? 1.0 : 0) - this._beamMat.uniforms.uIntensity.value) * 0.4;
