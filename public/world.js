@@ -1,28 +1,6 @@
 import * as THREE from 'three';
 import { buildConcreteSet, buildMetalSet, buildTileSet, buildDustParticleTexture, buildPaperTexture, buildSignTexture } from './textures.js';
 
-/*
-  Grid units = 1 meter. Facility layout (top-down, x runs right, z runs forward into screen):
-
-     z
-     ▼
-     -42  Server Room      |  Ventilation
-     -34  ─── corridor ────┼──────────────
-     -26  Maintenance Tun. |  Generator Room
-     -18  ─── corridor ────┼──────────────
-     -10  Medical Bay      |  Laboratory Wing
-      -2  ─── corridor ────┼──────────────
-       6  Security Office  |  Storage Room
-      14  Main Corridor (east-west spine)
-      20  Reception
-      28  Main Entrance
-      36  Exit Gate (north return path on east side)
-
-  Rooms are placed in cells of an east/west spine, with the main corridor at z≈14, and
-  branching corridors going north (negative z). The Exit Gate is reached by following the
-  corridor back east at z≈36.
-*/
-
 const WALL_H = 3.2;
 const WALL_T = 0.25;
 
