@@ -270,7 +270,7 @@ export class World {
         dome.rotation.x = Math.PI;
         this.scene.add(dome);
 
-        this._light(0xff2222, 1.6, x, y - 0.1, z, 6, 2.0, { flicker: Math.random() < 0.35, flickerDepth: 0.3 });
+        this._light(0xff2222, 1.6, x, y - 0.1, z, 8, 1.8, { flicker: Math.random() < 0.35, flickerDepth: 0.3 });
     }
 
     // ---------- CORRIDOR SPINE ----------
@@ -311,8 +311,8 @@ export class World {
         // ── West branch corridor  x=-22,  z = -14 to +12 ──
         this._floor(-22, -1, 3.6, 26, this.materials.matTile);
         this._ceiling(-22, -1, 3.6, 26);
-        // East wall x=-20.2 — gap at z=2 connects to central reception room
-        this._wallWithGaps(-20.2, -1, 26, false, [2]);
+        // East wall x=-20.2 — gap at z=2 connects to central reception room (widened to 3.0)
+        this._wallWithGaps(-20.2, -1, 26, false, [{ center: 2, width: 3.0 }]);
         // West wall x=-23.8 — gaps at z=+6, -2, -10 where rooms open to the LEFT
         this._wallWithGaps(-23.8, -1, 26, false, [6, -2, -10]);
         // South cap z=+12
@@ -323,8 +323,8 @@ export class World {
         // ── East branch corridor  x=+4,  z = -14 to +12 ──
         this._floor(4, -1, 3.6, 26, this.materials.matTile);
         this._ceiling(4, -1, 3.6, 26);
-        // West wall x=+2.2 — gaps at z=6,-2,-10 (rooms) plus z=2 (central reception room)
-        this._wallWithGaps(2.2, -1, 26, false, [6, -2, -10, 2]);
+        // West wall x=+2.2 — gaps at z=6,-2,-10 (rooms, width 2.0) plus z=2 (central reception, width 3.0)
+        this._wallWithGaps(2.2, -1, 26, false, [6, -2, -10, { center: 2, width: 3.0 }]);
         // East wall x=+5.8 — CLOSED (no rooms on right side of east branch)
         this._wall(5.8, -1, WALL_T, WALL_H, 26);
         // South cap z=+12
@@ -349,17 +349,22 @@ export class World {
 
     _wallWithGaps(x, z, length, isHorizontal, gapCenters, gapWidth = 2.0) {
         // builds a wall segment with gaps. isHorizontal=true means along x-axis at given z
+        // gapCenters entries can be a plain number (uses default gapWidth) or
+        // an object { center, width } for a custom-width gap.
         if (gapCenters.length === 0) {
             if (isHorizontal) this._wall(x, z, length, WALL_H, WALL_T);
             else this._wall(x, z, WALL_T, WALL_H, length);
             return;
         }
-        const sorted = [...gapCenters].sort((a, b) => a - b);
+        const normalized = gapCenters.map(g =>
+            typeof g === 'object' ? g : { center: g, width: gapWidth }
+        );
+        const sorted = [...normalized].sort((a, b) => a.center - b.center);
         const half = length / 2;
         let cursor = (isHorizontal ? x - half : z - half);
-        sorted.forEach(gc => {
-            const gStart = gc - gapWidth / 2;
-            const gEnd = gc + gapWidth / 2;
+        sorted.forEach(({ center: gc, width: gw }) => {
+            const gStart = gc - gw / 2;
+            const gEnd = gc + gw / 2;
             if (gStart > cursor) {
                 const segLen = gStart - cursor;
                 const mid = (cursor + gStart) / 2;
@@ -368,12 +373,12 @@ export class World {
             }
             // lintel
             if (isHorizontal) {
-                const g = new THREE.BoxGeometry(gapWidth, 0.6, WALL_T);
+                const g = new THREE.BoxGeometry(gw, 0.6, WALL_T);
                 const m = new THREE.Mesh(g, this.materials.matWall);
                 m.position.set(gc, WALL_H - 0.3, z); m.receiveShadow = true;
                 this.scene.add(m);
             } else {
-                const g = new THREE.BoxGeometry(WALL_T, 0.6, gapWidth);
+                const g = new THREE.BoxGeometry(WALL_T, 0.6, gw);
                 const m = new THREE.Mesh(g, this.materials.matWall);
                 m.position.set(x, WALL_H - 0.3, gc); m.receiveShadow = true;
                 this.scene.add(m);
@@ -1046,7 +1051,8 @@ export class World {
         const hemi = new THREE.HemisphereLight(
             0x2a2a3a,   // sky: dim blue (ceiling bounce)
             0x14100a,   // ground: dim warm
-            0.35        // visible but moody — flashlight still matters
+            0.5         // raised slightly — enough to make out room/corridor shapes
+                         // before generator power, flashlight still does the real work
         );
         this.scene.add(hemi);
 
