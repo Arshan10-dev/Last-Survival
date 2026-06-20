@@ -140,28 +140,34 @@ export class UI {
       // North connector
       { x: -9,    z: -34,    w: 30,  d: 3.6  },
       // South rooms
-      { x: -26,   z: 20.8,   w: 9,   d: 10   }, // Main Entrance
-      { x: 16,    z: 20.8,   w: 12,  d: 10   }, // Reception
+      { x: -26,   z: 20.8,   w: 9,   d: 10,  doors: [{ side: 'N', center: -26, width: 2.2 }] }, // Main Entrance
+      { x: 16,    z: 20.8,   w: 12,  d: 10,  doors: [{ side: 'N', center: 16,  width: 2.2 }] }, // Reception
       // West branch rooms (center x=-28.8)
-      { x: -28.8, z: 6,      w: 10,  d: 7    }, // Security Office
-      { x: -28.8, z: -2,     w: 10,  d: 7    }, // Medical Bay
-      { x: -28.8, z: -10,    w: 10,  d: 7    }, // Maintenance
-      { x: -22,   z: -22,    w: 10,  d: 9    }, // Server Room
+      { x: -28.8, z: 6,      w: 10,  d: 7,   doors: [{ side: 'E', center: 6,   width: 2.0 }] }, // Security Office
+      { x: -28.8, z: -2,     w: 10,  d: 7,   doors: [{ side: 'E', center: -2,  width: 2.0 }] }, // Medical Bay
+      { x: -28.8, z: -10,    w: 10,  d: 7,   doors: [{ side: 'E', center: -10, width: 2.0 }] }, // Maintenance
+      { x: -22,   z: -22,    w: 10,  d: 9,   doors: [{ side: 'S', center: -22, width: 2.2 }] }, // Server Room
       // West bridges
       { x: -22,   z: -15.75, w: 3.6, d: 3.5  },
       { x: -22,   z: -29.35, w: 3.6, d: 5.7  },
       // East branch rooms (center x=+7.2)
-      { x: 7.2,   z: 6,      w: 10,  d: 7    }, // Storage
-      { x: 7.2,   z: -2,     w: 10,  d: 7    }, // Laboratory
-      { x: 7.2,   z: -10,    w: 10,  d: 7    }, // Generator
-      { x: 4,     z: -22,    w: 10,  d: 9    }, // Ventilation
+      { x: 7.2,   z: 6,      w: 10,  d: 7,   doors: [{ side: 'W', center: 6,   width: 2.0 }] }, // Storage
+      { x: 7.2,   z: -2,     w: 10,  d: 7,   doors: [{ side: 'W', center: -2,  width: 2.0 }] }, // Laboratory
+      { x: 7.2,   z: -10,    w: 10,  d: 7,   doors: [{ side: 'W', center: -10, width: 2.0 }] }, // Generator
+      { x: 4,     z: -22,    w: 10,  d: 9,   doors: [{ side: 'S', center: 4,   width: 2.2 }] }, // Ventilation
       // East bridges
       { x: 4,     z: -15.75, w: 3.6, d: 3.5  },
       { x: 4,     z: -29.35, w: 3.6, d: 5.7  },
       // Exit gate
-      { x: 28,    z: 14,     w: 10,  d: 7    },
-      // Central Reception (was a dead void, now a real furnished room)
-      { x: -9,    z: 2,      w: 22.4, d: 10  },
+      { x: 28,    z: 14,     w: 10,  d: 7,   doors: [{ side: 'W', center: 14,  width: 2.2 }, { side: 'E', center: 14, width: 2.6 }] },
+      // Central Reception — large room, MUST show its entrance gaps clearly or it
+      // looks like an impassable solid block on the minimap (this was the bug report)
+      { x: -9,    z: 2,      w: 22.4, d: 10,
+        doors: [
+          { side: 'W', center: 2, width: 3.0 },  // entrance from west branch
+          { side: 'E', center: 2, width: 3.0 },  // entrance from east branch
+        ]
+      },
     ];
   }
   renderMinimap(playerPos, playerYaw, creaturePos, objectiveTarget) {
@@ -192,8 +198,48 @@ export class UI {
       const rh = r.d * sy;
       ctx.fillStyle = 'rgba(196,30,30,0.12)';
       ctx.fillRect(rx, ry, rw, rh);
+
       ctx.strokeStyle = 'rgba(196,30,30,0.5)';
-      ctx.strokeRect(rx, ry, rw, rh);
+      if (!r.doors || r.doors.length === 0) {
+        // No doorway data — simple solid outline (small rooms, bridges, etc.)
+        ctx.strokeRect(rx, ry, rw, rh);
+      } else {
+        // Draw each of the 4 sides as a line, breaking it where a door gap exists.
+        const doorsBySide = { N: [], S: [], E: [], W: [] };
+        r.doors.forEach(d => doorsBySide[d.side]?.push(d));
+
+        const drawSideWithGaps = (side, x1, y1, x2, y2, isHoriz) => {
+          const gaps = doorsBySide[side];
+          if (!gaps.length) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); return; }
+          // Convert door world-center to a 0..1 fraction along this side, then to pixel gap bounds
+          const sorted = [...gaps].sort((a, b) => a.center - b.center);
+          let cursorPx = isHoriz ? x1 : y1;
+          const endPx = isHoriz ? x2 : y2;
+          sorted.forEach(d => {
+            const gStartWorld = d.center - d.width / 2, gEndWorld = d.center + d.width / 2;
+            const gStartPx = isHoriz ? toX(gStartWorld) : toY(gStartWorld);
+            const gEndPx   = isHoriz ? toX(gEndWorld)   : toY(gEndWorld);
+            if (gStartPx > cursorPx) {
+              ctx.beginPath();
+              if (isHoriz) { ctx.moveTo(cursorPx, y1); ctx.lineTo(gStartPx, y1); }
+              else         { ctx.moveTo(x1, cursorPx); ctx.lineTo(x1, gStartPx); }
+              ctx.stroke();
+            }
+            cursorPx = gEndPx;
+          });
+          if (endPx > cursorPx) {
+            ctx.beginPath();
+            if (isHoriz) { ctx.moveTo(cursorPx, y1); ctx.lineTo(endPx, y1); }
+            else         { ctx.moveTo(x1, cursorPx); ctx.lineTo(x1, endPx); }
+            ctx.stroke();
+          }
+        };
+
+        drawSideWithGaps('N', rx, ry,      rx + rw, ry,      true);
+        drawSideWithGaps('S', rx, ry + rh, rx + rw, ry + rh, true);
+        drawSideWithGaps('W', rx, ry,      rx,      ry + rh, false);
+        drawSideWithGaps('E', rx + rw, ry, rx + rw, ry + rh, false);
+      }
     });
 
     // Objective marker
