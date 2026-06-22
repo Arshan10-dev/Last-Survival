@@ -129,45 +129,58 @@ export class UI {
   initMinimap(world) {
     this._minimapCtx = this.elems.minimap.getContext('2d');
     this._world = world;
-    this._bounds = { minX: -38, maxX: 38, minZ: -40, maxZ: 32 };
+    this._bounds = { minX: -36, maxX: 36, minZ: -44, maxZ: 44 };
     this._rooms = [
-      // Main corridor
-      { x: -4.5,  z: 14,     w: 55,  d: 3.6  },
-      // West branch
-      { x: -22,   z: -1,     w: 3.6, d: 26   },
-      // East branch
-      { x: 4,     z: -1,     w: 3.6, d: 26   },
-      // North connector
-      { x: -9,    z: -34,    w: 30,  d: 3.6  },
-      // South rooms
-      { x: -26,   z: 20.8,   w: 9,   d: 10,  doors: [{ side: 'N', center: -26, width: 2.2 }] }, // Main Entrance
-      { x: 16,    z: 20.8,   w: 12,  d: 10,  doors: [{ side: 'N', center: 16,  width: 2.2 }] }, // Reception
-      // West branch rooms (center x=-28.8)
-      { x: -28.8, z: 6,      w: 10,  d: 7,   doors: [{ side: 'E', center: 6,   width: 2.0 }] }, // Security Office
-      { x: -28.8, z: -2,     w: 10,  d: 7,   doors: [{ side: 'E', center: -2,  width: 2.0 }] }, // Medical Bay
-      { x: -28.8, z: -10,    w: 10,  d: 7,   doors: [{ side: 'E', center: -10, width: 2.0 }] }, // Maintenance
-      { x: -22,   z: -22,    w: 10,  d: 9,   doors: [{ side: 'S', center: -22, width: 2.2 }] }, // Server Room
-      // West bridges
-      { x: -22,   z: -15.75, w: 3.6, d: 3.5  },
-      { x: -22,   z: -29.35, w: 3.6, d: 5.7  },
-      // East branch rooms (center x=+7.2)
-      { x: 7.2,   z: 6,      w: 10,  d: 7,   doors: [{ side: 'W', center: 6,   width: 2.0 }] }, // Storage
-      { x: 7.2,   z: -2,     w: 10,  d: 7,   doors: [{ side: 'W', center: -2,  width: 2.0 }] }, // Laboratory
-      { x: 7.2,   z: -10,    w: 10,  d: 7,   doors: [{ side: 'W', center: -10, width: 2.0 }] }, // Generator
-      { x: 4,     z: -22,    w: 10,  d: 9,   doors: [{ side: 'S', center: 4,   width: 2.2 }] }, // Ventilation
-      // East bridges
-      { x: 4,     z: -15.75, w: 3.6, d: 3.5  },
-      { x: 4,     z: -29.35, w: 3.6, d: 5.7  },
-      // Exit gate
-      { x: 28,    z: 14,     w: 10,  d: 7,   doors: [{ side: 'W', center: 14,  width: 2.2 }, { side: 'E', center: 14, width: 2.6 }] },
-      // Central Reception — large room, MUST show its entrance gaps clearly or it
-      // looks like an impassable solid block on the minimap (this was the bug report)
-      { x: -9,    z: 2,      w: 22.4, d: 10,
-        doors: [
-          { side: 'W', center: 2, width: 3.0 },  // entrance from west branch
-          { side: 'E', center: 2, width: 3.0 },  // entrance from east branch
-        ]
-      },
+      // ── Central N-S spine ──
+      { x: 0,    z: -1,  w: 4,  d: 60 },
+
+      // ── Spine end caps / connectors ──
+      { x: 0,    z: -32.5, w: 4, d: 3 },  // exit connector
+      { x: 0,    z: 31.5,  w: 4, d: 5 },  // entrance connector
+
+      // ── Exit Area (north) ──
+      { x: 0,    z: -38, w: 10, d: 8, doors: [{ side: 'S', center: 0, width: 2.6 }] },
+
+      // ── Main Entrance Hall (south) ──
+      { x: 0,    z: 38,  w: 10, d: 8, doors: [{ side: 'N', center: 0, width: 2.6 }] },
+
+      // ── Upper row + bridges ──
+      { x: -11, z: -22, w: 10, d: 9, doors: [{ side: 'E', center: -22, width: 2.4 }] }, // Server Room
+      { x: -4,  z: -22, w: 4,  d: 2.4 },                                                  // bridge
+      { x: 11,  z: -22, w: 10, d: 9, doors: [{ side: 'W', center: -22, width: 2.4 }] },  // Laboratory
+      { x: 4,   z: -22, w: 4,  d: 2.4 },                                                  // bridge
+
+      // ── Mid row + bridges (also branch to side columns) ──
+      { x: -11, z: -12, w: 10, d: 9,
+        doors: [{ side: 'E', center: -12, width: 2.4 }, { side: 'W', center: -12, width: 2.4 }] }, // Security Office
+      { x: -4,  z: -12, w: 4,  d: 2.4 },                                                  // bridge
+      { x: 11,  z: -12, w: 10, d: 9,
+        doors: [{ side: 'W', center: -12, width: 2.4 }, { side: 'E', center: -12, width: 2.4 }] }, // Medical Office
+      { x: 4,   z: -12, w: 4,  d: 2.4 },                                                  // bridge
+
+      // ── Side columns (corridors) ──
+      { x: -18, z: -1, w: 4, d: 26 },  // west side corridor
+      { x: 18,  z: -1, w: 4, d: 26 },  // east side corridor
+
+      // ── Side column rooms + bridges ──
+      { x: -29, z: 2,  w: 10, d: 9, doors: [{ side: 'E', center: 2,  width: 2.4 }] },  // Storage Room
+      { x: -20, z: 2,  w: 8,  d: 2.4 },                                                  // bridge
+      { x: -29, z: 10, w: 10, d: 7, doors: [{ side: 'E', center: 10, width: 2.4 }] },  // Maintenance Room
+      { x: -20, z: 10, w: 8,  d: 2.4 },                                                  // bridge
+      { x: 29,  z: 2,  w: 10, d: 9, doors: [{ side: 'W', center: 2,  width: 2.4 }] },  // Break Room
+      { x: 20,  z: 2,  w: 8,  d: 2.4 },                                                  // bridge
+      { x: 29,  z: 10, w: 10, d: 7, doors: [{ side: 'W', center: 10, width: 2.4 }] },  // Admin Office
+      { x: 20,  z: 10, w: 8,  d: 2.4 },                                                  // bridge
+
+      // ── Reception (center hub) ──
+      { x: 0,   z: 2, w: 8, d: 10,
+        doors: [{ side: 'N', center: 0, width: 4 }, { side: 'S', center: 0, width: 4 }] },
+
+      // ── Lower row + bridges ──
+      { x: -11, z: 22, w: 10, d: 9, doors: [{ side: 'E', center: 22, width: 2.4 }] },  // Records Room
+      { x: -4,  z: 22, w: 4,  d: 2.4 },                                                  // bridge
+      { x: 11,  z: 22, w: 10, d: 9, doors: [{ side: 'W', center: 22, width: 2.4 }] },  // Interrogation Room
+      { x: 4,   z: 22, w: 4,  d: 2.4 },                                                  // bridge
     ];
   }
   renderMinimap(playerPos, playerYaw, creaturePos, objectiveTarget) {

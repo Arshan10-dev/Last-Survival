@@ -1,6 +1,27 @@
 import * as THREE from 'three';
 import { buildConcreteSet, buildMetalSet, buildTileSet, buildDustParticleTexture, buildPaperTexture, buildSignTexture } from './textures.js';
 
+/*
+  Grid units = 1 meter. Facility layout — cross-shaped, single central N-S spine.
+  (top-down, z negative = north, z positive = south, x negative = west)
+
+                     [EXIT AREA]              z=-38
+                          |
+         [SERVER]----+----[LAB]               z=-22
+                      |
+      [SECURITY]------+------[MEDICAL]         z=-12
+                      |
+   [STORAGE]          |          [BREAK]       z=+2  (Reception, widened)
+      |          [RECEPTION]          |
+   [MAINT.]           |           [ADMIN]      z=+10
+                      |
+      [RECORDS]-------+-------[INTERROG.]      z=+22
+                      |
+               [MAIN ENTRANCE]                 z=+38
+
+  See _buildRoomsClean(), _buildExitArea(), _buildMainEntranceArea() for the full layout.
+*/
+
 const WALL_H = 3.2;
 const WALL_T = 0.25;
 
@@ -74,8 +95,8 @@ export class World {
     _buildAll() {
         this._buildSpine();
         this._buildRooms();
-        this._buildCentralReception();
         this._buildExitArea();
+        this._buildMainEntranceArea();
         this._buildAtmosphere();
     }
 
@@ -252,77 +273,62 @@ export class World {
     }
 
     // ---------- CORRIDOR SPINE ----------
+    // ============================================================================
+    // FACILITY LAYOUT — cross-shaped, single central N-S spine corridor.
+    // (top-down, z negative = north/up, z positive = south/down, x negative = west)
+    //
+    //                    [EXIT AREA]            z=-32
+    //                         |
+    //        [SERVER]----+----[LAB]            z=-22
+    //                     |
+    //     [SECURITY]------+------[MEDICAL]      z=-12
+    //                     |
+    //  [STORAGE]          |          [BREAK]    z=+2 (Reception, widened)
+    //     |          [RECEPTION]          |
+    //  [MAINT.]           |           [ADMIN]   z=+10
+    //                     |
+    //     [RECORDS]-------+-------[INTERROG.]   z=+22
+    //                     |
+    //              [MAIN ENTRANCE]              z=+30
+    //
+    // Spine runs x=0, width=4, from z=-30 (Exit) to z=+28 (Entrance).
+    // Rooms sit directly off the spine; Storage/Maintenance and Break/Admin form
+    // outer side-columns connected back to the spine via the Security/Medical rooms.
+    // ============================================================================
+
     _buildSpine() {
-        /*
-         PRECISE LAYOUT:
-         Main corridor:  x = -32 to +23,  z = 12.2 to 15.8  (center z=14, width=3.6)
-         West branch:    x = -23.8 to -20.2,  z = -14 to +12  (center x=-22, width=3.6)
-         East branch:    x = +2.2 to +5.8,    z = -14 to +12  (center x=+4,  width=3.6)
-         North connector: x = -24 to +6,  z = -35.8 to -32.2  (center z=-34)
+        const spineW = 4;
+        // Full-length central corridor floor/ceiling, one continuous strip
+        this._floor(0, -1, spineW, 60, this.materials.matTile);
+        this._ceiling(0, -1, spineW, 60);
 
-         Gap positions (ALL 2.0m wide):
-           Main N wall (z=12.2): x=-20 (west branch entry), x=+4 (east branch entry)
-           Main S wall (z=15.8): x=-26 (entrance), x=+16 (reception)
-           West E wall (x=-20.2): z=+6, z=-2, z=-10, z=-18 (room entries)
-           West W wall (x=-23.8): CLOSED (rooms are on the left side)
-           East W wall (x=+2.2):  CLOSED (rooms are on the right side)
-           East E wall (x=+5.8):  z=+6, z=-2, z=-10, z=-18 (room entries)
-        */
+        // West spine wall (x=-2): gaps wherever a room opens onto the corridor
+        this._wallWithGaps(-2, -1, 60, false, [
+            { center: -22, width: 2.4 },  // Server Room
+            { center: -12, width: 2.4 },  // Security Office
+            { center: 22,  width: 2.4 },  // Records Room
+        ]);
+        // East spine wall (x=+2): mirrored gaps
+        this._wallWithGaps(2, -1, 60, false, [
+            { center: -22, width: 2.4 },  // Laboratory
+            { center: -12, width: 2.4 },  // Medical Office
+            { center: 22,  width: 2.4 },  // Interrogation Room
+        ]);
 
-        // ── Main east-west corridor ──
-        this._floor(-4.5, 14, 55, 3.6, this.materials.matTile);
-        this._ceiling(-4.5, 14, 55, 3.6);
-        // North wall z=12.2 — gaps at x=-20 (west branch) and x=+4 (east branch)
-        this._wallWithGaps(-4.5, 12.2, 55, true, [-20, 4]);
-        // South wall z=15.8 — gaps at x=-26 (entrance) and x=+16 (reception)
-        this._wallWithGaps(-4.5, 15.8, 55, true, [-26, 16]);
-        // West end cap at x=-32
-        this._wall(-32, 14, WALL_T, WALL_H, 3.6);
-        // East end is open — exit gate room attaches here at x=+23
+        // Spine end caps
+        // North cap: gap matches the Exit Area connector corridor width (4)
+        this._wallWithGaps(0, -31, spineW, true, [{ center: 0, width: 4 }]);
+        // South cap: gap matches the Main Entrance connector corridor width (4)
+        this._wallWithGaps(0, 29,  spineW, true, [{ center: 0, width: 4 }]);
 
-        for (let x = -28; x <= 18; x += 8) this._emergencyFixture(x, 2.7, 12.4);
-        this._mainLight(-26, 14, 1.6, 10);
-        this._mainLight(-9,  14, 1.6, 12);
-        this._mainLight(8,   14, 1.6, 12);
-        this._sign(-4.5, 2.4, 12.1, 'MAIN CORRIDOR', '#c41e1e', 3.0, 0.8);
-
-        // ── West branch corridor  x=-22,  z = -14 to +12 ──
-        this._floor(-22, -1, 3.6, 26, this.materials.matTile);
-        this._ceiling(-22, -1, 3.6, 26);
-        // East wall x=-20.2 — gap at z=2 connects to central reception room (widened to 3.0)
-        this._wallWithGaps(-20.2, -1, 26, false, [{ center: 2, width: 3.0 }]);
-        // West wall x=-23.8 — gaps at z=+6, -2, -10 where rooms open to the LEFT
-        this._wallWithGaps(-23.8, -1, 26, false, [6, -2, -10]);
-        // South cap z=+12
-        this._wall(-22, 12, 3.6, WALL_H, WALL_T);
-        for (let z = -10; z <= 8; z += 6) this._emergencyFixture(-22, 2.7, z);
-        this._mainLight(-22, 0, 1.4, 14);
-
-        // ── East branch corridor  x=+4,  z = -14 to +12 ──
-        this._floor(4, -1, 3.6, 26, this.materials.matTile);
-        this._ceiling(4, -1, 3.6, 26);
-        // West wall x=+2.2 — gaps at z=6,-2,-10 (rooms, width 2.0) plus z=2 (central reception, width 3.0)
-        this._wallWithGaps(2.2, -1, 26, false, [6, -2, -10, { center: 2, width: 3.0 }]);
-        // East wall x=+5.8 — CLOSED (no rooms on right side of east branch)
-        this._wall(5.8, -1, WALL_T, WALL_H, 26);
-        // South cap z=+12
-        this._wall(4, 12, 3.6, WALL_H, WALL_T);
-        for (let z = -10; z <= 8; z += 6) this._emergencyFixture(4, 2.7, z);
-        this._mainLight(4, 0, 1.4, 14);
-
-        // ── Far north connector  z=-34,  x = -24 to +6 ──
-        // Center x = (-24+6)/2 = -9,  length = 30
-        this._floor(-9, -34, 30, 3.6, this.materials.matTile);
-        this._ceiling(-9, -34, 30, 3.6);
-        // North wall z=-35.8 — solid
-        this._wall(-9, -35.8, 30, WALL_H, WALL_T);
-        // South wall z=-32.2 — gaps at x=-22 (west bridge) and x=+4 (east bridge)
-        this._wallWithGaps(-9, -32.2, 30, true, [-22, 4]);
-        // East and west caps
-        this._wall(-24, -34, WALL_T, WALL_H, 3.6);
-        this._wall(6, -34, WALL_T, WALL_H, 3.6);
-        this._emergencyFixture(-15, 2.7, -35.4);
-        this._emergencyFixture(-3, 2.7, -35.4);
+        // Corridor lighting along the spine
+        for (let z = -26; z <= 24; z += 8) this._emergencyFixture(0, 2.7, z);
+        this._mainLight(0, -22, 1.6, 9);
+        this._mainLight(0, -12, 1.6, 9);
+        this._mainLight(0, 2,   1.4, 8);
+        this._mainLight(0, 12,  1.6, 9);
+        this._mainLight(0, 22,  1.6, 9);
+        this._sign(0, 2.6, -1, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
     }
 
     _wallWithGaps(x, z, length, isHorizontal, gapCenters, gapWidth = 2.0) {
@@ -378,241 +384,329 @@ export class World {
     }
 
     _buildRoomsClean() {
-        /*
-         FINAL CORRECT LAYOUT:
-         West branch west wall = x=-23.8 (has gaps at z=6,-2,-10) → rooms open LEFT (west)
-           Room east edge = x=-23.8, width=10, center x = -23.8-5 = -28.8
-           Build: N, S, W walls only. NO east wall (branch west wall is shared)
+        // Each room is a fully independent _roomBox — its own 4 walls, regardless of
+        // whether one of those walls sits right next to the spine wall. This avoids
+        // the shared-wall alignment bugs from earlier iterations: every room is
+        // self-contained and guaranteed sealed except at its own doorway.
 
-         East branch west wall = x=+2.2 (has gaps at z=6,-2,-10) → rooms open RIGHT (east)
-           Room west edge = x=+2.2, width=10, center x = 2.2+5 = +7.2
-           Build: N, S, E walls only. NO west wall (branch west wall is shared)
-        */
-
-        // ── MAIN ENTRANCE ──
-        this._floor(-26, 20.8, 9, 10, this.materials.matFloor);
-        this._ceiling(-26, 20.8, 9, 10);
-        this._wall(-26, 25.8, 9, WALL_H, WALL_T);       // South
-        this._wall(-21.5, 20.8, WALL_T, WALL_H, 10);    // East
-        this._wall(-30.5, 20.8, WALL_T, WALL_H, 10);    // West
-        // No north wall — corridor S wall gap at x=-26 handles entry
-        this.rooms['Main Entrance'] = { center: new THREE.Vector3(-26, 0, 20.8), w: 9, d: 10 };
-        this._addEntranceProps(-26, 20.8);
-        this._emergencyFixture(-26, 2.7, 19);
-        this._mainLight(-26, 20.8, 2.0, 9);
-
-        // ── RECEPTION ──
-        this._floor(16, 20.8, 12, 10, this.materials.matFloor);
-        this._ceiling(16, 20.8, 12, 10);
-        this._wall(16, 25.8, 12, WALL_H, WALL_T);
-        this._wall(22, 20.8, WALL_T, WALL_H, 10);
-        this._wall(10, 20.8, WALL_T, WALL_H, 10);
-        this.rooms['Reception'] = { center: new THREE.Vector3(16, 0, 20.8), w: 12, d: 10 };
-        this._addReceptionProps(16, 20.8);
-        this._emergencyFixture(16, 2.7, 19);
-        this._mainLight(16, 20.8, 2.2, 10);
-
-        // ── WEST BRANCH ROOMS (open from branch west wall x=-23.8) ──
-        const wx = -28.8;  // center x = -23.8 - 5
-        const wrW = 10;
-
-        const buildWestRoom = (cz, rD, name, addProps) => {
-            const rHalf = rD / 2;
-            this._floor(wx, cz, wrW, rD, this.materials.matFloor);
-            this._ceiling(wx, cz, wrW, rD);
-            this._wall(wx, cz - rHalf, wrW, WALL_H, WALL_T);  // North
-            this._wall(wx, cz + rHalf, wrW, WALL_H, WALL_T);  // South
-            this._wall(wx - 5, cz, WALL_T, WALL_H, rD);        // West far wall x=-33.8
-            // NO east wall — branch west wall x=-23.8 shared with gaps
-            this.rooms[name] = { center: new THREE.Vector3(wx, 0, cz), w: wrW, d: rD };
-            addProps();
-            this._emergencyFixture(wx, 2.7, cz);
-            this._mainLight(wx, cz, 2.0, 8);
-        };
-
-        buildWestRoom(6,   7, 'Security Office',    () => this._addSecurityProps(wx, 6));
-        buildWestRoom(-2,  7, 'Medical Bay',        () => this._addMedicalProps(wx, -2));
-        buildWestRoom(-10, 7, 'Maintenance Tunnel', () => this._addMaintenanceProps(wx, -10));
-
-        // Server Room — positioned at the BRANCH CENTER (x=-22) so its south doorway
-        // aligns perfectly with the bridge corridor below it. Previously this room was
-        // at the same x as the other west rooms (-28.8) while its door+bridge were built
-        // at x=-22 — a 6.8 unit misalignment that made the doorway open into a dark,
-        // disconnected void instead of a walkable path.
-        const serverX = -22;
-        this._roomBox(serverX, -22, wrW, 9, {
+        // ── SERVER ROOM (west, upper row, z=-22) ──
+        this._roomBox(-11, -22, 10, 9, {
             name: 'Server Room',
-            doorways: [{ side: 'S', offset: 0, width: 2.2 }]
+            doorways: [{ side: 'E', offset: 0, width: 2.4 }]
         });
-        this._addServerProps(serverX, -22);
-        this._emergencyFixture(serverX, 2.7, -22);
-        this._mainLight(serverX, -22, 1.8, 9);
+        this._addServerProps(-11, -22);
+        this._emergencyFixture(-11, 2.7, -22);
+        this._mainLight(-11, -22, 1.8, 9);
+        // Bridge: Server Room door (x=-6) to spine west wall (x=-2) — closes a 4-unit gap
+        this._floor(-4, -22, 4, 2.4, this.materials.matTile);
+        this._ceiling(-4, -22, 4, 2.4);
+        this._wall(-4, -23.2, 4, WALL_H, WALL_T);
+        this._wall(-4, -20.8, 4, WALL_H, WALL_T);
 
-        // Bridge: branch end z=-14 → server S edge z=-17.5 (len=3.5) — now correctly
-        // aligned under the room since both share x=-22
-        this._floor(-22, -15.75, 3.6, 3.5, this.materials.matTile);
-        this._ceiling(-22, -15.75, 3.6, 3.5);
-        this._wall(-23.8, -15.75, WALL_T, WALL_H, 3.5);
-        this._wall(-20.2, -15.75, WALL_T, WALL_H, 3.5);
-        // Bridge: server N edge z=-26.5 → connector S wall z=-32.2 (len=5.7)
-        this._floor(-22, -29.35, 3.6, 5.7, this.materials.matTile);
-        this._ceiling(-22, -29.35, 3.6, 5.7);
-        this._wall(-23.8, -29.35, WALL_T, WALL_H, 5.7);
-        this._wall(-20.2, -29.35, WALL_T, WALL_H, 5.7);
-        this._emergencyFixture(-22, 2.7, -29.35);
-
-        // ── EAST BRANCH ROOMS (open from branch west wall x=+2.2) ──
-        const ex = 7.2;   // center x = 2.2 + 5
-        const erW = 10;
-
-        const buildEastRoom = (cz, rD, name, addProps) => {
-            const rHalf = rD / 2;
-            this._floor(ex, cz, erW, rD, this.materials.matFloor);
-            this._ceiling(ex, cz, erW, rD);
-            this._wall(ex, cz - rHalf, erW, WALL_H, WALL_T);  // North
-            this._wall(ex, cz + rHalf, erW, WALL_H, WALL_T);  // South
-            this._wall(ex + 5, cz, WALL_T, WALL_H, rD);        // East far wall x=+12.2
-            // NO west wall — branch west wall x=+2.2 shared with gaps
-            this.rooms[name] = { center: new THREE.Vector3(ex, 0, cz), w: erW, d: rD };
-            addProps();
-            this._emergencyFixture(ex, 2.7, cz);
-            this._mainLight(ex, cz, 2.0, 8);
-        };
-
-        buildEastRoom(6,   7, 'Storage Room',    () => this._addStorageProps(ex, 6));
-        buildEastRoom(-2,  7, 'Laboratory Wing', () => this._addLabProps(ex, -2));
-        buildEastRoom(-10, 7, 'Generator Room',  () => this._addGeneratorProps(ex, -10));
-
-        // Ventilation Section — positioned at branch center (x=4) so its south
-        // doorway aligns with the bridge below it (same fix as Server Room)
-        const ventX = 4;
-        this._roomBox(ventX, -22, erW, 9, {
-            name: 'Ventilation Section',
-            doorways: [{ side: 'S', offset: 0, width: 2.2 }]
+        // ── LABORATORY (east, upper row, z=-22) ──
+        this._roomBox(11, -22, 10, 9, {
+            name: 'Laboratory',
+            doorways: [{ side: 'W', offset: 0, width: 2.4 }]
         });
-        this._addVentilationProps(ventX, -22);
-        this._emergencyFixture(ventX, 2.7, -22);
-        this._mainLight(ventX, -22, 1.8, 9);
+        this._addLabProps(11, -22);
+        this._emergencyFixture(11, 2.7, -22);
+        this._mainLight(11, -22, 1.8, 9);
+        // Bridge: Laboratory door (x=6) to spine east wall (x=2)
+        this._floor(4, -22, 4, 2.4, this.materials.matTile);
+        this._ceiling(4, -22, 4, 2.4);
+        this._wall(4, -23.2, 4, WALL_H, WALL_T);
+        this._wall(4, -20.8, 4, WALL_H, WALL_T);
 
-        // East bridges (mirror west) — correctly aligned under the room since both share x=4
-        this._floor(4, -15.75, 3.6, 3.5, this.materials.matTile);
-        this._ceiling(4, -15.75, 3.6, 3.5);
-        this._wall(2.2, -15.75, WALL_T, WALL_H, 3.5);
-        this._wall(5.8, -15.75, WALL_T, WALL_H, 3.5);
-        this._floor(4, -29.35, 3.6, 5.7, this.materials.matTile);
-        this._ceiling(4, -29.35, 3.6, 5.7);
-        this._wall(2.2, -29.35, WALL_T, WALL_H, 5.7);
-        this._wall(5.8, -29.35, WALL_T, WALL_H, 5.7);
-        this._emergencyFixture(4, 2.7, -29.35);
+        // ── SECURITY OFFICE (west, mid row, z=-12) — also connects to Storage/Maint column ──
+        this._roomBox(-11, -12, 10, 9, {
+            name: 'Security Office',
+            doorways: [
+                { side: 'E', offset: 0, width: 2.4 },   // to spine
+                { side: 'W', offset: 0, width: 2.4 },   // to side corridor (Storage/Maint column)
+            ]
+        });
+        this._addSecurityProps(-11, -12);
+        this._emergencyFixture(-11, 2.7, -12);
+        this._mainLight(-11, -12, 1.8, 9);
+        // Bridge: Security Office door (x=-6) to spine west wall (x=-2)
+        this._floor(-4, -12, 4, 2.4, this.materials.matTile);
+        this._ceiling(-4, -12, 4, 2.4);
+        this._wall(-4, -13.2, 4, WALL_H, WALL_T);
+        this._wall(-4, -10.8, 4, WALL_H, WALL_T);
+
+        // ── MEDICAL OFFICE (east, mid row, z=-12) — also connects to Break/Admin column ──
+        this._roomBox(11, -12, 10, 9, {
+            name: 'Medical Office',
+            doorways: [
+                { side: 'W', offset: 0, width: 2.4 },   // to spine
+                { side: 'E', offset: 0, width: 2.4 },   // to side corridor (Break/Admin column)
+            ]
+        });
+        this._addMedicalProps(11, -12);
+        this._emergencyFixture(11, 2.7, -12);
+        this._mainLight(11, -12, 1.8, 9);
+        // Bridge: Medical Office door (x=6) to spine east wall (x=2)
+        this._floor(4, -12, 4, 2.4, this.materials.matTile);
+        this._ceiling(4, -12, 4, 2.4);
+        this._wall(4, -13.2, 4, WALL_H, WALL_T);
+        this._wall(4, -10.8, 4, WALL_H, WALL_T);
+
+        // ── WEST SIDE COLUMN: Storage (z=+2) + Maintenance (z=+10) ──
+        // Side corridor's EAST wall must be at x=-16 to exactly meet Security Office's
+        // west door (door world-x is fixed at the room's own wall coordinate: -11-5=-16;
+        // the 'offset' param only shifts a door along its wall's span, never sideways).
+        // Corridor width=4 -> west wall at x=-20, center at x=-18.
+        this._floor(-18, -1, 4, 26, this.materials.matTile);
+        this._ceiling(-18, -1, 4, 26);
+        this._wallWithGaps(-16, -1, 26, false, [{ center: 2, width: 2.4 }, { center: 10, width: 2.4 }]); // east wall: gaps to Storage/Maint
+        this._wall(-20, -1, WALL_T, WALL_H, 26); // west wall: solid
+        // North cap at z=-12 — wide open, directly continuous with Security Office's
+        // doorway (no separate gap math needed; the corridor simply terminates exactly
+        // where the room's door is, so there's nothing to misalign).
+        this._mainLight(-18, -1, 1.4, 12);
+        this._emergencyFixture(-18, 2.7, 4);
+        // South dead-end cap only (north end flows directly into Security Office's door)
+        this._wall(-18, 12, 4, WALL_H, WALL_T);
+
+        this._roomBox(-29, 2, 10, 9, {
+            name: 'Storage Room',
+            doorways: [{ side: 'E', offset: 0, width: 2.4 }]
+        });
+        this._addStorageProps(-29, 2);
+        this._emergencyFixture(-29, 2.7, 2);
+        this._mainLight(-29, 2, 1.8, 9);
+        // Bridge: Storage Room door (x=-24) to side corridor east wall (x=-16) — closes an 8-unit gap
+        this._floor(-20, 2, 8, 2.4, this.materials.matTile);
+        this._ceiling(-20, 2, 8, 2.4);
+        this._wall(-20, 0.8, 8, WALL_H, WALL_T);
+        this._wall(-20, 3.2, 8, WALL_H, WALL_T);
+        this._mainLight(-20, 2, 1.4, 7);
+
+        this._roomBox(-29, 10, 10, 7, {
+            name: 'Maintenance Room',
+            doorways: [{ side: 'E', offset: 0, width: 2.4 }]
+        });
+        this._addMaintenanceProps(-29, 10);
+        this._emergencyFixture(-29, 2.7, 10);
+        this._mainLight(-29, 10, 1.8, 8);
+        // Bridge: Maintenance Room door (x=-24) to side corridor east wall (x=-16)
+        this._floor(-20, 10, 8, 2.4, this.materials.matTile);
+        this._ceiling(-20, 10, 8, 2.4);
+        this._wall(-20, 8.8, 8, WALL_H, WALL_T);
+        this._wall(-20, 11.2, 8, WALL_H, WALL_T);
+        this._mainLight(-20, 10, 1.4, 7);
+
+        // ── EAST SIDE COLUMN: Break Room (z=+2) + Admin Office (z=+10) ──
+        // Mirror of the west side: corridor west wall must be at x=+16 to exactly
+        // meet Medical Office's east door (fixed at 11+5=16).
+        this._floor(18, -1, 4, 26, this.materials.matTile);
+        this._ceiling(18, -1, 4, 26);
+        this._wallWithGaps(16, -1, 26, false, [{ center: 2, width: 2.4 }, { center: 10, width: 2.4 }]); // west wall: gaps to Break/Admin
+        this._wall(20, -1, WALL_T, WALL_H, 26); // east wall: solid
+        this._mainLight(18, -1, 1.4, 12);
+        this._emergencyFixture(18, 2.7, 4);
+        // South dead-end cap only (north end flows directly into Medical Office's door)
+        this._wall(18, 12, 4, WALL_H, WALL_T);
+
+        this._roomBox(29, 2, 10, 9, {
+            name: 'Break Room',
+            doorways: [{ side: 'W', offset: 0, width: 2.4 }]
+        });
+        this._addBreakRoomProps(29, 2);
+        this._emergencyFixture(29, 2.7, 2);
+        this._mainLight(29, 2, 1.8, 9);
+        // Bridge: Break Room door (x=24) to side corridor west wall (x=16) — closes an 8-unit gap
+        this._floor(20, 2, 8, 2.4, this.materials.matTile);
+        this._ceiling(20, 2, 8, 2.4);
+        this._wall(20, 0.8, 8, WALL_H, WALL_T);
+        this._wall(20, 3.2, 8, WALL_H, WALL_T);
+        this._mainLight(20, 2, 1.4, 7);
+
+        this._roomBox(29, 10, 10, 7, {
+            name: 'Admin Office',
+            doorways: [{ side: 'W', offset: 0, width: 2.4 }]
+        });
+        this._addAdminProps(29, 10);
+        this._emergencyFixture(29, 2.7, 10);
+        this._mainLight(29, 10, 1.8, 8);
+        // Bridge: Admin Office door (x=24) to side corridor west wall (x=16)
+        this._floor(20, 10, 8, 2.4, this.materials.matTile);
+        this._ceiling(20, 10, 8, 2.4);
+        this._wall(20, 8.8, 8, WALL_H, WALL_T);
+        this._wall(20, 11.2, 8, WALL_H, WALL_T);
+        this._mainLight(20, 10, 1.4, 7);
+
+        // ── RECEPTION (center, z=+2, widened spine area) ──
+        this._floor(0, 2, 8, 10, this.materials.matTile);
+        this._ceiling(0, 2, 8, 10);
+        // North wall: wide gap matching spine width (this is the ONLY wall mesh here —
+        // a duplicate full-width decorative wall was previously drawn on the same spot,
+        // visually covering this gap even though it wasn't collidable. Removed.)
+        this._wallWithGaps(0, -3, 8, true, [{ center: 0, width: 4 }]);
+        this._wallWithGaps(0, 7, 8, true, [{ center: 0, width: 4 }]);  // south wall, wide gap matching spine width
+        this._wall(-4, 2, WALL_T, WALL_H, 10); // west wall solid
+        this._wall(4, 2, WALL_T, WALL_H, 10);  // east wall solid
+        this._addReceptionProps(0, 2);
+        this._mainLight(0, 2, 2.4, 10);
+        this._ceilingFixture(0, 2);
+
+        // ── RECORDS ROOM (west, lower row, z=+22) ──
+        this._roomBox(-11, 22, 10, 9, {
+            name: 'Records Room',
+            doorways: [{ side: 'E', offset: 0, width: 2.4 }]
+        });
+        this._addRecordsProps(-11, 22);
+        this._emergencyFixture(-11, 2.7, 22);
+        this._mainLight(-11, 22, 1.8, 9);
+        // Bridge: Records Room door (x=-6) to spine west wall (x=-2)
+        this._floor(-4, 22, 4, 2.4, this.materials.matTile);
+        this._ceiling(-4, 22, 4, 2.4);
+        this._wall(-4, 20.8, 4, WALL_H, WALL_T);
+        this._wall(-4, 23.2, 4, WALL_H, WALL_T);
+
+        // ── INTERROGATION ROOM (east, lower row, z=+22) ──
+        this._roomBox(11, 22, 10, 9, {
+            name: 'Interrogation Room',
+            doorways: [{ side: 'W', offset: 0, width: 2.4 }]
+        });
+        this._addInterrogationProps(11, 22);
+        this._emergencyFixture(11, 2.7, 22);
+        this._mainLight(11, 22, 1.8, 9);
+        // Bridge: Interrogation Room door (x=6) to spine east wall (x=2)
+        this._floor(4, 22, 4, 2.4, this.materials.matTile);
+        this._ceiling(4, 22, 4, 2.4);
+        this._wall(4, 20.8, 4, WALL_H, WALL_T);
+        this._wall(4, 23.2, 4, WALL_H, WALL_T);
     }
 
-    // ── Central Reception: fills the dead void between west/east branches with a
-    // proper walkable room. Connects to both branches via gaps at z=2 in their
-    // shared walls. Furnished like a waiting/break area — desk, table, chairs.
+    // ---------- CENTRAL RECEPTION is now built inline above (see _buildRoomsClean) ----------
     _buildCentralReception() {
-        const cx = -9, cz = 2, w = 22.4, d = 10;
-        const halfW = w / 2, halfD = d / 2;
+        // intentionally empty — Reception is now built as part of _buildRoomsClean()
+        // to keep the cross-shaped layout's center as a single cohesive build pass.
+    }
 
-        this._floor(cx, cz, w, d, this.materials.matTile);
-        this._ceiling(cx, cz, w, d);
-        // North wall (full span, no doorways needed here)
-        this._wall(cx, cz - halfD, w, WALL_H, WALL_T);
-        // South wall (full span)
-        this._wall(cx, cz + halfD, w, WALL_H, WALL_T);
-        // West and East walls are OMITTED — they're shared with the branch corridor
-        // walls (x=-20.2 and x=+2.2) which already have gaps cut at z=2 for this room.
+    // ---------- EXIT AREA (north end of spine) ----------
+    _buildExitArea() {
+        // Exit Area sits beyond the spine's north cap, behind a locked gate.
+        // Spine north cap is at z=-31; Exit Area room starts right after it.
+        const cz = -38;
+        this._roomBox(0, cz, 10, 8, {
+            name: 'Exit Area',
+            doorways: [{ side: 'S', offset: 0, width: 2.6 }]
+        });
+        this._addExitGateProps(0, cz);
+        this._emergencyFixture(0, 2.7, cz);
+        this._mainLight(0, cz, 2.4, 10);
+        this._ceilingFixture(0, cz);
 
-        this.rooms['Central Reception'] = { center: new THREE.Vector3(cx, 0, cz), w, d };
+        // Short connector corridor between spine north cap (z=-31) and Exit Area south wall (z=-34)
+        this._floor(0, -32.5, 4, 3, this.materials.matTile);
+        this._ceiling(0, -32.5, 4, 3);
+        this._wall(-2, -32.5, WALL_T, WALL_H, 3);
+        this._wall(2, -32.5, WALL_T, WALL_H, 3);
+        this._mainLight(0, -32.5, 1.6, 6);
 
-        // ── Lighting: bright, evenly spaced (this was the darkest dead zone before) ──
-        this._mainLight(cx - 6, cz, 2.2, 9);
-        this._mainLight(cx,     cz, 2.4, 10);
-        this._mainLight(cx + 6, cz, 2.2, 9);
-        this._ceilingFixture(cx - 6, cz);
-        this._ceilingFixture(cx,     cz);
-        this._ceilingFixture(cx + 6, cz);
-        this._emergencyFixture(cx - 9, 2.7, cz - 3);
-        this._emergencyFixture(cx + 9, 2.7, cz - 3);
+        // Win trigger zone — far end of Exit Area, beyond the gate
+        this.exitTriggerPos = new THREE.Vector3(0, 0, cz - 3);
+    }
 
-        // ── Furniture: reception desk facing the main corridor side, plus a
-        // break-area table with chairs as requested ──
-        this._desk(cx - 7, cz - 1.5, 3.0);
-        this._chair(cx - 7, cz - 0.1);
-        this._monitor(cx - 7.7, cz - 1.7, 0.9);
-        this._monitor(cx - 6.3, cz - 1.7, 0.9);
+    // ---------- MAIN ENTRANCE (south end of spine) ----------
+    _buildMainEntranceArea() {
+        const cz = 38;
+        this._roomBox(0, cz, 10, 8, {
+            name: 'Main Entrance Hall',
+            doorways: [{ side: 'N', offset: 0, width: 2.6 }]
+        });
+        this._addEntranceProps(0, cz);
+        this._emergencyFixture(0, 2.7, cz);
+        this._mainLight(0, cz, 2.2, 10);
 
-        // Central break table with four chairs around it
+        // Short connector corridor between spine south cap (z=29) and entrance hall north wall (z=34)
+        this._floor(0, 31.5, 4, 5, this.materials.matTile);
+        this._ceiling(0, 31.5, 4, 5);
+        this._wall(-2, 31.5, WALL_T, WALL_H, 5);
+        this._wall(2, 31.5, WALL_T, WALL_H, 5);
+        this._mainLight(0, 31.5, 1.6, 6);
+    }
+
+    _addBreakRoomProps(cx, cz) {
+        // Break room: small kitchenette table + chairs + vending-style cabinet
         const tableTop = new THREE.Mesh(
-            new THREE.CylinderGeometry(1.1, 1.1, 0.08, 24),
-            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.55, metalness: 0.2 })
+            new THREE.CylinderGeometry(0.8, 0.8, 0.07, 20),
+            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.55 })
         );
-        tableTop.position.set(cx, 0.92, cz);
+        tableTop.position.set(cx, 0.9, cz);
         tableTop.castShadow = tableTop.receiveShadow = true;
         this.scene.add(tableTop);
         this.collidables.push(tableTop);
-        const tableLeg = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.1, 0.12, 0.9, 12),
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.86, 10), this.materials.matMetal);
+        leg.position.set(cx, 0.45, cz);
+        this.scene.add(leg);
+        this._chair(cx - 1.3, cz);
+        this._chair(cx + 1.3, cz);
+        this._cabinet(cx, cz - 3);
+        this._crate(cx + 3, cz + 2.5);
+        this._note(cx - 1.3, 0.97, cz + 0.3, 'BREAK SCHEDULE');
+        this._sign(cx, 2.4, cz - 3.95, 'BREAK ROOM', '#f0a830', 3, 0.7);
+        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
+    }
+
+    _addAdminProps(cx, cz) {
+        // Admin office: desk + chair + filing cabinet + monitor
+        this._desk(cx, cz - 1, 2.8);
+        this._chair(cx, cz + 0.3);
+        this._monitor(cx, cz - 1.2, 0.9);
+        this._cabinet(cx + 3.5, cz + 1.5);
+        this._note(cx + 0.5, 1.06, cz - 1.4, 'ADMIN MEMO');
+        this._sign(cx, 2.4, cz - 3.45, 'ADMIN OFFICE', '#c41e1e', 3.4, 0.7);
+        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: true });
+    }
+
+    _addRecordsProps(cx, cz) {
+        // Records room: tall filing shelves + scattered cabinets + a desk with papers
+        for (let i = -1; i <= 1; i++) {
+            this._shelf(cx + i * 2.8, cz - 1.5);
+        }
+        this._cabinet(cx - 3.6, cz + 2);
+        this._cabinet(cx + 3.6, cz + 2);
+        this._desk(cx, cz + 2.2, 2.2);
+        this._note(cx, 1.06, cz + 1.7, 'CLASSIFIED FILES');
+        this._sign(cx, 2.4, cz - 3.45, 'RECORDS', '#4fbc94', 3, 0.7);
+        this._light(0xfff0c0, 0.45, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
+        this._waterPuddle(cx - 2, cz + 3, 1.6);
+    }
+
+    _addInterrogationProps(cx, cz) {
+        // Interrogation room: bare metal table + two chairs + single hanging light + mirror
+        const tableTop = new THREE.Mesh(
+            new THREE.BoxGeometry(2.0, 0.06, 1.1),
             this.materials.matMetal
         );
-        tableLeg.position.set(cx, 0.46, cz);
-        this.scene.add(tableLeg);
-        [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]].forEach(([dx, dz]) => {
-            this._chair(cx + dx, cz + dz);
-        });
-
-        // Side furniture — crates, cabinet, pipes for atmosphere/clutter
-        this._crate(cx + 7, cz - 3);
-        this._crate(cx + 7.5, cz - 2.4);
-        this._cabinet(cx - 9, cz + 3);
-        this._cabinet(cx + 9, cz + 3);
-        this._pipes(cx - 9.5, cz - 3.5);
-        this._pipes(cx + 9.5, cz - 3.5);
-        this._waterPuddle(cx + 3, cz + 3.2, 1.8);
-
-        this._sign(cx, 2.4, cz - halfD + 0.05, 'CENTRAL ATRIUM', '#c41e1e', 4.2, 0.8);
-        this._note(cx - 1.2, 0.97, cz - 0.2, 'BREAK ROOM');
+        tableTop.position.set(cx, 0.85, cz);
+        tableTop.castShadow = tableTop.receiveShadow = true;
+        this.scene.add(tableTop);
+        this.collidables.push(tableTop);
+        const leg = (lx, lz) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.85, 0.07), this.materials.matMetal);
+            m.position.set(cx + lx, 0.42, cz + lz);
+            this.scene.add(m);
+        };
+        leg(0.9, 0.45); leg(-0.9, 0.45); leg(0.9, -0.45); leg(-0.9, -0.45);
+        this._chair(cx, cz - 1.4);
+        this._chair(cx, cz + 1.4);
+        // single harsh hanging light over the table
+        this._light(0xfff6e0, 1.0, cx, 2.4, cz, 6, 1.4, { flicker: Math.random() < 0.3, flickerDepth: 0.5 });
+        // one-way mirror panel on the back wall
+        const mirror = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.6, 1.0),
+            new THREE.MeshStandardMaterial({ color: 0x101418, metalness: 0.8, roughness: 0.2 })
+        );
+        mirror.position.set(cx, 1.5, cz - 4.37);
+        this.scene.add(mirror);
+        this._sign(cx, 2.4, cz - 3.95, 'INTERROGATION', '#c41e1e', 3.6, 0.7);
+        this._note(cx + 0.6, 0.91, cz + 0.2, 'CASE FILE 07');
     }
 
-    _buildExitArea() {
-        // Exit Gate room: west wall connects to corridor (door W), east wall has
-        // an OPENING (not solid) where the locked gate sits. Behind the gate is a
-        // short escape tunnel leading outside — win trigger at the far end.
-        this._roomBox(28, 14, 10, 7, {
-            name: 'Exit Gate',
-            doorways: [
-                { side: 'W', offset: 0, width: 2.2 },  // from corridor
-                { side: 'E', offset: 0, width: 2.6 }   // toward escape tunnel (behind gate)
-            ]
-        });
-        this._addExitGateProps(28, 14);
-        this._emergencyFixture(28, 2.7, 14);
-        this._mainLight(28, 14, 3.2, 11);
-        // Central ceiling fixture (chandelier-style) — visible warm glow source at room center
-        this._ceilingFixture(28, 14);
-
-        // ── Escape tunnel: x = 33 to 40, z = 14 (continues east through the gate gap) ──
-        // Room east wall is at cx+w/2 = 28+5 = 33, gap there leads into this tunnel
-        const tunnelCX = 36.5, tunnelLen = 7;
-        this._floor(tunnelCX, 14, tunnelLen, 3.2, this.materials.matConcrete);
-        this._ceiling(tunnelCX, 14, tunnelLen, 3.2);
-        this._wall(tunnelCX, 12.4, tunnelLen, WALL_H, WALL_T); // North wall
-        this._wall(tunnelCX, 15.6, tunnelLen, WALL_H, WALL_T); // South wall
-        // West end open (connects to gate room gap) — no wall
-        // East end OPEN — this is the facility exterior, win trigger sits here
-        this._emergencyFixture(34, 2.7, 14);
-        // Main ceiling lights spaced along the tunnel (like the corridor has)
-        this._mainLight(34.5, 14, 2.0, 7);
-        this._mainLight(38,   14, 1.8, 7);
-        this._ceilingFixture(34.5, 14);
-        // Faint daylight glow at the tunnel mouth (visual cue: "outside")
-        const exitGlow = new THREE.PointLight(0xcfe8ff, 1.4, 10, 1.6);
-        exitGlow.position.set(40, 2.2, 14);
-        this.scene.add(exitGlow);
-        this._sign(36.5, 2.6, 12.55, 'EXIT TUNNEL', '#4fbc94', 2.4, 0.6);
-
-        // Win trigger zone — stored for game.js to check distance against
-        this.exitTriggerPos = new THREE.Vector3(40, 0, 14);
-    }
 
     // ---------- PROPS PER ROOM ----------
     _addEntranceProps(cx, cz) {
@@ -688,14 +782,41 @@ export class World {
     _addMaintenanceProps(cx, cz) {
         this._pipes(cx - 5, cz - 2);
         this._pipes(cx + 5, cz - 2);
-        this._pipes(cx, cz + 3);
         this._crate(cx - 4, cz + 1);
         this._crate(cx - 3.2, cz + 1.5);
-        this._crate(cx + 3, cz - 1);
-        this._toolbox(cx + 1, cz);
+        this._toolbox(cx + 3, cz - 1);
         this._sign(cx, 2.4, cz - 3.45, 'MAINTENANCE', '#f0a830', 3.4, 0.7);
-        this._light(0xffaa44, 0.5, cx, 2.8, cz, 7, 1.8, { flicker: true });
-        this._waterPuddle(cx - 1, cz + 1.5, 2);
+        this._light(0xffaa44, 0.4, cx - 3, 2.8, cz, 6, 1.8, { flicker: true });
+        this._waterPuddle(cx - 1, cz + 2, 1.6);
+
+        // ── Generator (objective: Restore Generator Power) ──
+        const gen = new THREE.Group();
+        gen.position.set(cx + 2.5, 0, cz + 1);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.9, 1.5), this.materials.matMetal);
+        body.position.set(0, 0.95, 0); body.castShadow = true; body.receiveShadow = true;
+        gen.add(body);
+        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.9, 16), this.materials.matMetal);
+        core.position.set(0, 1.0, 0.85); core.rotation.z = Math.PI / 2; core.castShadow = true;
+        gen.add(core);
+        const panelMat = new THREE.MeshStandardMaterial({ color: 0x2a0808, emissive: 0x2a0808, emissiveIntensity: 0.4, roughness: 0.4 });
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.07), panelMat);
+        panel.position.set(0.9, 1.2, 0.78);
+        gen.add(panel);
+        this.scene.add(gen);
+        this.collidables.push(body, core);
+
+        const switchMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.28, 0.45, 0.16),
+            new THREE.MeshStandardMaterial({ color: 0x6e2a2a, emissive: 0x3a0808, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.5 })
+        );
+        switchMesh.position.set(cx + 1.4, 1.1, cz + 1.78);
+        this.scene.add(switchMesh);
+        this.interactables.push({
+            mesh: switchMesh, type: 'generator_switch',
+            prompt: 'RESTORE POWER',
+            data: { panel, powered: false },
+            bobBase: 1.1
+        });
     }
 
     _addServerProps(cx, cz) {
@@ -738,70 +859,6 @@ export class World {
         this._light(0xa8c8ff, 0.6, cx, 2.8, cz, 6, 1.8);
         this._light(0xa8c8ff, 0.6, cx + 4, 2.8, cz, 6, 1.8, { flicker: true, flickerDepth: 0.5 });
         this._waterPuddle(cx - 2, cz + 2, 1.6);
-    }
-
-    _addGeneratorProps(cx, cz) {
-        // Big generator (cylindrical core + box housing + pipes)
-        const gen = new THREE.Group();
-        gen.position.set(cx, 0, cz);
-        const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.2, 1.8), this.materials.matMetal);
-        body.position.set(0, 1.1, 0); body.castShadow = true; body.receiveShadow = true;
-        gen.add(body);
-        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 2.4, 16), this.materials.matMetal);
-        core.position.set(0, 1.2, 1.0); core.rotation.z = Math.PI / 2; core.castShadow = true;
-        gen.add(core);
-        // emissive panel (off initially)
-        const panelMat = new THREE.MeshStandardMaterial({ color: 0x2a0808, emissive: 0x2a0808, emissiveIntensity: 0.4, roughness: 0.4 });
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.08), panelMat);
-        panel.position.set(1.2, 1.4, 0.95);
-        gen.add(panel);
-        this.scene.add(gen);
-        this.collidables.push(body, core);
-        // Interactive switch
-        const switchMesh = new THREE.Mesh(
-            new THREE.BoxGeometry(0.3, 0.5, 0.18),
-            new THREE.MeshStandardMaterial({ color: 0x6e2a2a, emissive: 0x3a0808, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.5 })
-        );
-        switchMesh.position.set(cx - 1.4, 1.3, cz + 0.95);
-        this.scene.add(switchMesh);
-        this.interactables.push({
-            mesh: switchMesh, type: 'generator_switch',
-            prompt: 'RESTORE POWER',
-            data: { panel, powered: false },
-            bobBase: 1.3
-        });
-        this._pipes(cx - 5, cz - 1);
-        this._pipes(cx + 5, cz + 1);
-        this._sign(cx, 2.4, cz - 3.95, 'GENERATOR', '#f0a830', 3.4, 0.7);
-        this._light(0xff6622, 0.7, cx, 2.7, cz, 8, 1.8, { flicker: true, flickerDepth: 0.7 });
-    }
-
-    _addVentilationProps(cx, cz) {
-        // Large fan, ducts
-        const fanRing = new THREE.Mesh(
-            new THREE.TorusGeometry(1.2, 0.18, 12, 24),
-            this.materials.matMetal
-        );
-        fanRing.position.set(cx, 2.2, cz - 4.35);
-        fanRing.rotation.y = Math.PI / 2;
-        this.scene.add(fanRing);
-        const fanBlades = new THREE.Group();
-        for (let i = 0; i < 5; i++) {
-            const b = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.1, 0.05), this.materials.matMetal);
-            b.position.y = 0.55;
-            const a = (i / 5) * Math.PI * 2;
-            const grp = new THREE.Group();
-            grp.add(b); grp.rotation.z = a;
-            fanBlades.add(grp);
-        }
-        fanBlades.position.set(cx, 2.2, cz - 4.32);
-        fanBlades.rotation.x = Math.PI / 2;
-        this.scene.add(fanBlades);
-        this._fanBlades = fanBlades;
-        this._pipes(cx - 4, cz);
-        this._pipes(cx + 4, cz);
-        this._sign(cx, 2.4, cz - 4.45, 'VENTILATION', '#4fbc94', 3, 0.7);
-        this._light(0xa8c8ff, 0.45, cx, 2.8, cz, 7, 1.8, { flicker: true });
     }
 
     _addExitGateProps(cx, cz) {

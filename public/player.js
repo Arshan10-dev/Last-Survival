@@ -261,8 +261,8 @@ export class Player {
             pos.z + this.velocity.z * dt
         );
         this._collide(next);
-        next.x = Math.max(-44, Math.min(40, next.x));
-        next.z = Math.max(-44, Math.min(36, next.z));
+        next.x = Math.max(-34, Math.min(34, next.x));
+        next.z = Math.max(-44, Math.min(44, next.z));
         pos.copy(next);
 
         // Head bob — only Y offset on pitchObj, NEVER touch rotation.z

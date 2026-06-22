@@ -69,29 +69,31 @@ export class Creature {
   }
 
   _setupPatrol() {
-    // Full facility loop — matches the corrected layout (west rooms x=-28.8, east rooms x=7.2)
-    // Path: main corridor → west branch down → bridges → north connector → east branch up → back
+    // Full facility loop matching the new cross-shaped layout:
+    // spine (N-S) + west/east side columns + all 10 room bridges.
     this.waypoints = [
-      new THREE.Vector3(-26,   0,  14),   // main corridor, near entrance
-      new THREE.Vector3(-22,   0,  10),   // west branch entry
-      new THREE.Vector3(-22,   0,   6),   // west branch, level w/ Security
-      new THREE.Vector3(-22,   0,  -2),   // west branch, level w/ Medical
-      new THREE.Vector3(-22,   0, -10),   // west branch, level w/ Maintenance
-      new THREE.Vector3(-22,   0, -14),   // west branch end (before bridge)
-      new THREE.Vector3(-22,   0, -22),   // server room area (bridge + room exterior)
-      new THREE.Vector3(-22,   0, -29),   // second bridge, toward connector
-      new THREE.Vector3(-15,   0, -34),   // north connector, west half
-      new THREE.Vector3(-3,    0, -34),   // north connector, east half
-      new THREE.Vector3(4,     0, -29),   // east bridge
-      new THREE.Vector3(4,     0, -22),   // ventilation area
-      new THREE.Vector3(4,     0, -14),   // east branch end
-      new THREE.Vector3(4,     0, -10),   // east branch, level w/ Generator
-      new THREE.Vector3(4,     0,  -2),   // east branch, level w/ Lab
-      new THREE.Vector3(4,     0,   6),   // east branch, level w/ Storage
-      new THREE.Vector3(4,     0,  10),   // east branch entry
-      new THREE.Vector3(8,     0,  14),   // main corridor, east side
-      new THREE.Vector3(20,    0,  14),   // main corridor, near reception/exit
-      new THREE.Vector3(-5,    0,  14),   // main corridor center (back toward west)
+      new THREE.Vector3(0,   0, -28),  // spine, near north cap
+      new THREE.Vector3(-4,  0, -22),  // bridge to Server Room
+      new THREE.Vector3(0,   0, -17),  // spine, between upper and mid row
+      new THREE.Vector3(-4,  0, -12),  // bridge to Security Office
+      new THREE.Vector3(-18, 0, -8),   // west side corridor (toward Storage/Maint)
+      new THREE.Vector3(-20, 0,  2),   // bridge to Storage Room
+      new THREE.Vector3(-18, 0,  6),   // west side corridor, mid
+      new THREE.Vector3(-20, 0, 10),   // bridge to Maintenance Room
+      new THREE.Vector3(-18, 0, 11),   // west side corridor, south end
+      new THREE.Vector3(0,   0,  2),   // Reception (center hub)
+      new THREE.Vector3(18,  0, 11),   // east side corridor, south end
+      new THREE.Vector3(20,  0, 10),   // bridge to Admin Office
+      new THREE.Vector3(18,  0,  6),   // east side corridor, mid
+      new THREE.Vector3(20,  0,  2),   // bridge to Break Room
+      new THREE.Vector3(18,  0, -8),   // east side corridor, north end
+      new THREE.Vector3(4,   0, -12),  // bridge to Medical Office
+      new THREE.Vector3(0,   0, -17),  // spine, back up
+      new THREE.Vector3(4,   0, -22),  // bridge to Laboratory
+      new THREE.Vector3(0,   0,  10),  // spine, heading south
+      new THREE.Vector3(-4,  0,  22),  // bridge to Records Room
+      new THREE.Vector3(0,   0,  27),  // spine, near south cap
+      new THREE.Vector3(4,   0,  22),  // bridge to Interrogation Room
     ];
     this.waypointIndex = 0;
     this.target.copy(this.waypoints[0]);

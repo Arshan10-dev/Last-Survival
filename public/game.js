@@ -92,7 +92,188 @@ async function boot() {
         if (e.code === 'Escape') {
             if (game && game.running) togglePause();
         }
+        if (e.code === 'KeyM') {
+            const overlay = document.getElementById('mapOverlay');
+            if (!overlay) return;
+            const isHidden = overlay.classList.contains('hidden');
+            if (isHidden) {
+                overlay.classList.remove('hidden');
+                if (game && game.running) {
+                    game.paused = true;
+                    if (document.pointerLockElement) game.player.controls.unlock();
+                }
+                drawFacilityMap();
+            } else {
+                overlay.classList.add('hidden');
+                if (game && game.running) {
+                    game.paused = false;
+                    game.player.controls.lock();
+                }
+            }
+        }
     });
+}
+
+function drawFacilityMap() {
+    const canvas = document.getElementById('mapCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    const bounds = { minX: -36, maxX: 36, minZ: -44, maxZ: 44 };
+    const PAD = 72;
+    const mapW = W - PAD * 2, mapH = H - PAD * 2;
+    const sx = mapW / (bounds.maxX - bounds.minX);
+    const sy = mapH / (bounds.maxZ - bounds.minZ);
+    const wx = x => PAD + (x - bounds.minX) * sx;
+    const wz = z => PAD + (z - bounds.minZ) * sy;
+
+    const RED = 'rgba(196,30,30,', REDF = '#c41e1e';
+
+    ctx.fillStyle = '#060504'; ctx.fillRect(0, 0, W, H);
+    // scanlines
+    for (let y = 0; y < H; y += 3) { ctx.fillStyle='rgba(0,0,0,0.12)'; ctx.fillRect(0,y,W,1); }
+    // grid
+    ctx.strokeStyle = RED+'0.06)'; ctx.lineWidth=0.5;
+    for (let x=bounds.minX; x<=bounds.maxX; x+=10) { ctx.beginPath(); ctx.moveTo(wx(x),PAD); ctx.lineTo(wx(x),H-PAD); ctx.stroke(); }
+    for (let z=bounds.minZ; z<=bounds.maxZ; z+=10) { ctx.beginPath(); ctx.moveTo(PAD,wz(z)); ctx.lineTo(W-PAD,wz(z)); ctx.stroke(); }
+
+    const rooms = [
+      {x:0,  z:-1,  w:4, d:60, t:'c'},
+      {x:0,  z:-32.5,w:4,d:3,  t:'c'},
+      {x:0,  z:31.5, w:4,d:5,  t:'c'},
+      {x:-18,z:-.5, w:4, d:26, t:'c'},
+      {x:18, z:-.5, w:4, d:26, t:'c'},
+      {x:-4, z:-22, w:4, d:2.4,t:'b'},{x:4,z:-22,w:4,d:2.4,t:'b'},
+      {x:-4, z:-12, w:4, d:2.4,t:'b'},{x:4,z:-12,w:4,d:2.4,t:'b'},
+      {x:-4, z:22,  w:4, d:2.4,t:'b'},{x:4,z:22, w:4,d:2.4,t:'b'},
+      {x:-20,z:2,   w:8, d:2.4,t:'b'},{x:-20,z:10,w:8,d:2.4,t:'b'},
+      {x:20, z:2,   w:8, d:2.4,t:'b'},{x:20,z:10,w:8,d:2.4,t:'b'},
+      {x:0,  z:-38, w:10,d:8,  t:'s', lb:'EXIT AREA',   poi:'obj', doors:[{s:'S',c:0,gw:2.6}]},
+      {x:0,  z:38,  w:10,d:8,  t:'s', lb:'MAIN\nENTRANCE',      doors:[{s:'N',c:0,gw:2.6}]},
+      {x:0,  z:2,   w:8, d:10, t:'r', lb:'RECEPTION',   poi:'poi', doors:[{s:'N',c:0,gw:4},{s:'S',c:0,gw:4}]},
+      {x:-11,z:-22, w:10,d:9,  t:'r', lb:'SERVER ROOM',          doors:[{s:'E',c:-22,gw:2.4}]},
+      {x:11, z:-22, w:10,d:9,  t:'r', lb:'LABORATORY',           doors:[{s:'W',c:-22,gw:2.4}]},
+      {x:-11,z:-12, w:10,d:9,  t:'r', lb:'SECURITY\nOFFICE',poi:'poi',doors:[{s:'E',c:-12,gw:2.4},{s:'W',c:-12,gw:2.4}]},
+      {x:11, z:-12, w:10,d:9,  t:'r', lb:'MEDICAL\nOFFICE', poi:'poi',doors:[{s:'W',c:-12,gw:2.4},{s:'E',c:-12,gw:2.4}]},
+      {x:-29,z:2,   w:10,d:9,  t:'r', lb:'STORAGE\nROOM',        doors:[{s:'E',c:2,gw:2.4}]},
+      {x:-29,z:10,  w:10,d:7,  t:'r', lb:'MAINTENANCE\nROOM',poi:'obj',doors:[{s:'E',c:10,gw:2.4}]},
+      {x:29, z:2,   w:10,d:9,  t:'r', lb:'BREAK\nROOM',          doors:[{s:'W',c:2,gw:2.4}]},
+      {x:29, z:10,  w:10,d:7,  t:'r', lb:'ADMIN\nOFFICE',  poi:'poi',doors:[{s:'W',c:10,gw:2.4}]},
+      {x:-11,z:22,  w:10,d:9,  t:'r', lb:'RECORDS\nROOM',        doors:[{s:'E',c:22,gw:2.4}]},
+      {x:11, z:22,  w:10,d:9,  t:'r', lb:'INTERROGATION\nROOM',poi:'poi',doors:[{s:'W',c:22,gw:2.4}]},
+    ];
+
+    const drawR = r => {
+        const rx=wx(r.x-r.w/2), ry=wz(r.z-r.d/2), rw=r.w*sx, rh=r.d*sy;
+        ctx.fillStyle = r.t==='r'||r.t==='s' ? RED+'0.1)' : RED+'0.05)';
+        ctx.fillRect(rx,ry,rw,rh);
+        ctx.strokeStyle = r.t==='r'||r.t==='s' ? RED+'0.9)' : RED+'0.45)';
+        ctx.lineWidth = r.t==='r'||r.t==='s' ? 1.5 : 1;
+
+        if (!r.doors?.length) { ctx.strokeRect(rx,ry,rw,rh); }
+        else {
+            const ds = {N:[],S:[],E:[],W:[]};
+            r.doors.forEach(d=>ds[d.s]?.push(d));
+            const seg=(x1,y1,x2,y2,hz,gaps)=>{
+                if(!gaps.length){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();return;}
+                let cur=hz?x1:y1; const end=hz?x2:y2;
+                [...gaps].sort((a,b)=>a.c-b.c).forEach(d=>{
+                    const gs=hz?wx(d.c-d.gw/2):wz(d.c-d.gw/2), ge=hz?wx(d.c+d.gw/2):wz(d.c+d.gw/2);
+                    if(gs>cur){ctx.beginPath();if(hz){ctx.moveTo(cur,y1);ctx.lineTo(gs,y1);}else{ctx.moveTo(x1,cur);ctx.lineTo(x1,gs);}ctx.stroke();}
+                    // door ticks
+                    const sv=ctx.strokeStyle,lw=ctx.lineWidth;
+                    ctx.strokeStyle='#c41e1e';ctx.lineWidth=2;
+                    if(hz){ctx.beginPath();ctx.moveTo(gs,y1-5);ctx.lineTo(gs,y1+5);ctx.stroke();ctx.beginPath();ctx.moveTo(ge,y1-5);ctx.lineTo(ge,y1+5);ctx.stroke();}
+                    else{ctx.beginPath();ctx.moveTo(x1-5,gs);ctx.lineTo(x1+5,gs);ctx.stroke();ctx.beginPath();ctx.moveTo(x1-5,ge);ctx.lineTo(x1+5,ge);ctx.stroke();}
+                    ctx.strokeStyle=sv;ctx.lineWidth=lw;
+                    cur=ge;
+                });
+                if(end>cur){ctx.beginPath();if(hz){ctx.moveTo(cur,y1);ctx.lineTo(end,y1);}else{ctx.moveTo(x1,cur);ctx.lineTo(x1,end);}ctx.stroke();}
+            };
+            seg(rx,ry,rx+rw,ry,true,ds.N);
+            seg(rx,ry+rh,rx+rw,ry+rh,true,ds.S);
+            seg(rx,ry,rx,ry+rh,false,ds.W);
+            seg(rx+rw,ry,rx+rw,ry+rh,false,ds.E);
+        }
+
+        // label
+        if(r.lb){
+            const cx2=rx+rw/2, cy2=ry+rh/2;
+            ctx.fillStyle=r.t==='s'?'#e8dfcc':'#9a9080';
+            ctx.font=`bold 7px 'Share Tech Mono',monospace`;
+            ctx.textAlign='center';ctx.textBaseline='middle';
+            const lines=r.lb.split('\n');
+            lines.forEach((l,i)=>ctx.fillText(l,cx2,cy2-(lines.length-1)*9/2+i*9));
+        }
+        // poi
+        if(r.poi){
+            const mx=rx+rw/2, my=ry+rh/2+(r.lb?Math.ceil(r.lb.split('\n').length)*5:0);
+            if(r.poi==='obj'){
+                ctx.strokeStyle='#f0a830';ctx.lineWidth=1.5;
+                ctx.beginPath();ctx.arc(mx,my,5,0,Math.PI*2);ctx.stroke();
+            } else {
+                ctx.fillStyle=REDF;
+                ctx.beginPath();ctx.arc(mx,my,3.5,0,Math.PI*2);ctx.fill();
+            }
+        }
+    };
+
+    rooms.filter(r=>r.t==='c'||r.t==='b').forEach(drawR);
+    rooms.filter(r=>r.t==='r'||r.t==='s').forEach(drawR);
+
+    // Player marker at spawn (0, 38)
+    const ppx=wx(0), ppy=wz(38);
+    ctx.save(); ctx.translate(ppx,ppy);
+    ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,-8); ctx.lineTo(5,6); ctx.lineTo(-5,6); ctx.closePath();
+    ctx.fill(); ctx.stroke(); ctx.restore();
+
+    // Title
+    ctx.fillStyle=REDF; ctx.font="bold 16px 'Share Tech Mono',monospace";
+    ctx.textAlign='left'; ctx.textBaseline='top'; ctx.fillText('FACILITY MAP', PAD, 12);
+    ctx.strokeStyle='rgba(196,30,30,0.4)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(PAD,32); ctx.lineTo(PAD+120,32); ctx.stroke();
+
+    // Legend
+    const litems = [
+        {draw:()=>{ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(PAD+6,50);ctx.lineTo(PAD+10,60);ctx.lineTo(PAD+2,60);ctx.closePath();ctx.fill();},'lb':'PLAYER'},
+        {draw:()=>{ctx.strokeStyle='#f0a830';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(PAD+6,58,5,0,Math.PI*2);ctx.stroke();},'lb':'OBJECTIVE'},
+        {draw:()=>{ctx.fillStyle=REDF;ctx.beginPath();ctx.arc(PAD+6,58,3.5,0,Math.PI*2);ctx.fill();},'lb':'POINT OF INTEREST'},
+        {draw:()=>{ctx.strokeStyle=RED+'0.9)';ctx.lineWidth=1.5;ctx.strokeRect(PAD+1,53,10,10);},'lb':'ROOM / OFFICE'},
+        {draw:()=>{ctx.strokeStyle=REDF;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(PAD+1,58);ctx.lineTo(PAD+11,58);ctx.stroke();ctx.beginPath();ctx.moveTo(PAD+3,54);ctx.lineTo(PAD+3,62);ctx.stroke();ctx.beginPath();ctx.moveTo(PAD+9,54);ctx.lineTo(PAD+9,62);ctx.stroke();},'lb':'DOOR / ENTRY'},
+    ];
+    litems.forEach((it,i)=>{
+        const oy=i*18;
+        ctx.save(); ctx.translate(0,oy); it.draw(); ctx.restore();
+        ctx.fillStyle='#7a7068'; ctx.font="9px 'Share Tech Mono',monospace";
+        ctx.textAlign='left'; ctx.textBaseline='middle';
+        ctx.fillText(it.lb, PAD+16, 54+oy);
+    });
+
+    // Compass
+    const cpx=W-48,cpy=H-48;
+    ctx.strokeStyle=REDF;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(cpx,cpy,16,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle=REDF;ctx.beginPath();ctx.moveTo(cpx,cpy-13);ctx.lineTo(cpx+4,cpy-3);ctx.lineTo(cpx-4,cpy-3);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(196,30,30,0.4)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(cpx,cpy-3);ctx.lineTo(cpx,cpy+13);ctx.stroke();
+    ctx.fillStyle=REDF;ctx.font="bold 9px 'Share Tech Mono',monospace";
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('N',cpx,cpy-21);
+
+    // Sector info
+    ctx.strokeStyle='rgba(196,30,30,0.35)';ctx.lineWidth=1;
+    ctx.strokeRect(PAD,H-PAD+10,160,30);
+    ctx.fillStyle='#7a7068';ctx.font="9px 'Share Tech Mono',monospace";
+    ctx.textAlign='left';ctx.textBaseline='top';
+    ctx.fillText('SECTOR: A-1',PAD+6,H-PAD+16);
+    ctx.fillText('CLEARANCE: LEVEL 4',PAD+6,H-PAD+26);
+
+    // Border
+    ctx.strokeStyle='rgba(196,30,30,0.3)';ctx.lineWidth=1;
+    ctx.strokeRect(3,3,W-6,H-6);
+    ctx.strokeStyle='rgba(196,30,30,0.12)';
+    ctx.strokeRect(7,7,W-14,H-14);
 }
 
 function handleMenuAction(action) {
@@ -159,19 +340,19 @@ function buildRun() {
     const creature = new Creature(engine.scene, world, audio);
 
     // spawn player in entrance (new entrance center is -26, 20.8)
-    player.setSpawn(-26, 20.8);
+    player.setSpawn(0, 38);
 
     // creature spawns in the west branch (Security Office area) — start of its patrol loop
-    creature.setSpawn(-22, 6);
+    creature.setSpawn(-11, -12);
 
     ui.initMinimap(world);
 
     // Objectives
     const objectives = [
-        { id: 1, text: 'Find the Security Keycard', state: 'current',  target: { x: -28.8, z: 6   } },
+        { id: 1, text: 'Find the Security Keycard', state: 'current',  target: { x: -11, z: -12  } },
         { id: 2, text: 'Open the Security Office',  state: 'pending',  target: null                  },
-        { id: 3, text: 'Restore Generator Power',   state: 'pending',  target: { x: 10.8,  z: -10  } },
-        { id: 4, text: 'Unlock Main Exit Gate',      state: 'pending',  target: { x: 28,    z: 14   } },
+        { id: 3, text: 'Restore Generator Power',   state: 'pending',  target: { x: -29, z: 10   } },
+        { id: 4, text: 'Unlock Main Exit Gate',      state: 'pending',  target: { x: 0,   z: -38  } },
         { id: 5, text: 'Escape the Facility',        state: 'pending',  target: null                  }
     ];
     ui.renderObjectives(objectives);
@@ -386,9 +567,9 @@ function buildRun() {
             if (activeInteractable) ui.showInteract(activeInteractable.prompt);
             else ui.hideInteract();
 
-            // win condition: reach the end of escape tunnel with gate open + powered
+            // win condition: reach the far end of Exit Area, beyond the unlocked gate
             const ppos = player.controls.getObject().position;
-            if (objectives[4].state === 'current' && ppos.x > 38 && Math.abs(ppos.z - 14) < 2) {
+            if (objectives[4].state === 'current' && ppos.z < -41 && Math.abs(ppos.x) < 3) {
                 objectives[4].state = 'done';
                 ui.renderObjectives(objectives);
                 ui.showVictory();
