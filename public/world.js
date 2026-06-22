@@ -328,7 +328,7 @@ export class World {
         this._mainLight(0, 2,   1.4, 8);
         this._mainLight(0, 12,  1.6, 9);
         this._mainLight(0, 22,  1.6, 9);
-        this._sign(0, 2.6, -1, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
+        this._sign(0, 2.6, -10, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
     }
 
     _wallWithGaps(x, z, length, isHorizontal, gapCenters, gapWidth = 2.0) {
@@ -542,8 +542,8 @@ export class World {
         // North wall: wide gap matching spine width (this is the ONLY wall mesh here —
         // a duplicate full-width decorative wall was previously drawn on the same spot,
         // visually covering this gap even though it wasn't collidable. Removed.)
-        this._wallWithGaps(0, -3, 8, true, [{ center: 0, width: 4 }]);
-        this._wallWithGaps(0, 7, 8, true, [{ center: 0, width: 4 }]);  // south wall, wide gap matching spine width
+        this._wallWithGaps(0, -3, 8, true, [{ center: 0, width: 2.0 }]);
+        this._wallWithGaps(0, 7, 8, true, [{ center: 0, width: 2.0 }]);
         this._wall(-4, 2, WALL_T, WALL_H, 10); // west wall solid
         this._wall(4, 2, WALL_T, WALL_H, 10);  // east wall solid
         this._addReceptionProps(0, 2);
@@ -729,13 +729,16 @@ export class World {
     }
 
     _addReceptionProps(cx, cz) {
-        this._desk(cx, cz, 3);
-        this._chair(cx - 1, cz + 1.4);
-        this._chair(cx + 1, cz + 1.4);
-        this._light(0xfff0c0, 0.4, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.5 });
-        this._sign(cx + 4, 2.2, cz - 3.95, 'RECEPTION', '#f0a830', 3, 0.8);
-        this._crate(cx - 6, cz + 2);
-        this._waterPuddle(cx + 2, cz + 2, 1.8);
+        // Furniture on south half — not visible through the narrow north doorway
+        const deskZ = cz + 2.5;
+        this._desk(cx, deskZ, 3);
+        this._chair(cx - 1, deskZ + 1.4);
+        this._chair(cx + 1, deskZ + 1.4);
+        this._crate(cx - 2.8, deskZ + 1.5);
+        this._waterPuddle(cx + 2, deskZ + 1.2, 1.4);
+        this._light(0xfff0c0, 0.4, cx, 2.8, deskZ, 6, 1.7, { flicker: Math.random() < 0.5 });
+        // Sign on SOUTH wall (inside the room, not at the north entrance)
+        this._sign(cx, 2.2, cz + 4.88, 'RECEPTION', '#f0a830', 3, 0.8);
     }
 
     _addSecurityProps(cx, cz) {
