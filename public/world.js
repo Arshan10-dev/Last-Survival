@@ -729,13 +729,16 @@ export class World {
     }
 
     _addReceptionProps(cx, cz) {
-        this._desk(cx, cz, 3);
-        this._chair(cx - 1, cz + 1.4);
-        this._chair(cx + 1, cz + 1.4);
-        this._light(0xfff0c0, 0.4, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.5 });
-        this._sign(cx + 4, 2.2, cz - 3.95, 'RECEPTION', '#f0a830', 3, 0.8);
-        this._crate(cx - 6, cz + 2);
-        this._waterPuddle(cx + 2, cz + 2, 1.8);
+        // Furniture placed on the SOUTH half of the room so it's not
+        // visible through the wide north gap (which opens onto the spine corridor).
+        const deskZ = cz + 2.5;
+        this._desk(cx, deskZ, 3);
+        this._chair(cx - 1, deskZ + 1.4);
+        this._chair(cx + 1, deskZ + 1.4);
+        this._crate(cx - 2.8, deskZ + 1.5);
+        this._waterPuddle(cx + 2, deskZ + 1.2, 1.4);
+        this._light(0xfff0c0, 0.4, cx, 2.8, deskZ, 6, 1.7, { flicker: Math.random() < 0.5 });
+        this._sign(cx, 2.2, cz - 4.88, 'RECEPTION', '#f0a830', 3, 0.8);
     }
 
     _addSecurityProps(cx, cz) {
