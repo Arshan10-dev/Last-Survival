@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>LAST SURVIVOR — Facility Map</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #080605;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    color: #c41e1e;
+  }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<canvas id="map" width="900" height="900"></canvas>
+<script>
+const canvas = document.getElementById('map');
+const ctx = canvas.getContext('2d');
+const W = 900, H = 900;
+
+// ── World bounds matching world.js layout ──
+const bounds = { minX: -36, maxX: 36, minZ: -44, maxZ: 44 };
+const PAD = 80; // padding for labels/legend
+
+const mapW = W - PAD * 2;
+const mapH = H - PAD * 2;
+const sx = mapW / (bounds.maxX - bounds.minX);
+const sy = mapH / (bounds.maxZ - bounds.minZ);
+
+function wx(x) { return PAD + (x - bounds.minX) * sx; }
+function wz(z) { return PAD + (z - bounds.minZ) * sy; }
+
+// ── Color palette ──
+const C = {
+  bg:        '#080605',
+  roomFill:  'rgba(196,30,30,0.08)',
+  roomStroke:'rgba(196,30,30,0.85)',
+  corridor:  'rgba(196,30,30,0.06)',
+  door:      '#c41e1e',
+  label:     '#e8dfcc',
+  labelDim:  '#7a7068',
+  player:    '#ffffff',
+  objective: '#f0a830',
+  poi:       '#c41e1e',
+  legend:    '#c41e1e',
+  grid:      'rgba(196,30,30,0.07)',
+  scanline:  'rgba(0,0,0,0.15)',
+};
+
+// ── Room definitions ──
+const rooms = [
+  // spine (vertical, corridor style)
+  { x: 0,   z: -1,   w: 4,  d: 60, type:'corridor' },
+  // connectors
+  { x: 0,   z:-32.5, w: 4,  d:  3, type:'connector' },
+  { x: 0,   z: 31.5, w: 4,  d:  5, type:'connector' },
+  // exit area
+  { x: 0,   z:-38,   w:10,  d:  8, label:'EXIT\nAREA', type:'special',
+    doors:[{side:'S',center:0,width:2.6}], poi:'objective' },
+  // main entrance
+  { x: 0,   z: 38,   w:10,  d:  8, label:'MAIN\nENTRANCE', type:'special',
+    doors:[{side:'N',center:0,width:2.6}] },
+  // bridges (no label, just connectors)
+  { x:-4,   z:-22,   w: 4,  d:2.4, type:'bridge' },
+  { x: 4,   z:-22,   w: 4,  d:2.4, type:'bridge' },
+  { x:-4,   z:-12,   w: 4,  d:2.4, type:'bridge' },
+  { x: 4,   z:-12,   w: 4,  d:2.4, type:'bridge' },
+  { x:-4,   z: 22,   w: 4,  d:2.4, type:'bridge' },
+  { x: 4,   z: 22,   w: 4,  d:2.4, type:'bridge' },
+  // side corridors
+  { x:-18,  z:-0.5,  w: 4,  d:26,  type:'corridor' },
+  { x: 18,  z:-0.5,  w: 4,  d:26,  type:'corridor' },
+  // side bridges
+  { x:-20,  z:  2,   w: 8,  d:2.4, type:'bridge' },
+  { x:-20,  z: 10,   w: 8,  d:2.4, type:'bridge' },
+  { x: 20,  z:  2,   w: 8,  d:2.4, type:'bridge' },
+  { x: 20,  z: 10,   w: 8,  d:2.4, type:'bridge' },
+  // reception
+  { x: 0,   z:  2,   w: 8,  d:10,  label:'RECEPTION', type:'room', poi:'poi',
+    doors:[{side:'N',center:0,width:4},{side:'S',center:0,width:4}] },
+  // upper row rooms
+  { x:-11,  z:-22,   w:10,  d: 9,  label:'SERVER\nROOM', type:'room',
+    doors:[{side:'E',center:-22,width:2.4}] },
+  { x: 11,  z:-22,   w:10,  d: 9,  label:'LABORATORY', type:'room',
+    doors:[{side:'W',center:-22,width:2.4}] },
+  // mid row rooms
+  { x:-11,  z:-12,   w:10,  d: 9,  label:'SECURITY\nOFFICE', type:'room', poi:'poi',
+    doors:[{side:'E',center:-12,width:2.4},{side:'W',center:-12,width:2.4}] },
+  { x: 11,  z:-12,   w:10,  d: 9,  label:'MEDICAL\nOFFICE', type:'room', poi:'poi',
+    doors:[{side:'W',center:-12,width:2.4},{side:'E',center:-12,width:2.4}] },
+  // side rooms west
+  { x:-29,  z:  2,   w:10,  d: 9,  label:'STORAGE\nROOM', type:'room',
+    doors:[{side:'E',center:2,width:2.4}] },
+  { x:-29,  z: 10,   w:10,  d: 7,  label:'MAINTENANCE\nROOM', type:'room', poi:'objective',
+    doors:[{side:'E',center:10,width:2.4}] },
+  // side rooms east
+  { x: 29,  z:  2,   w:10,  d: 9,  label:'BREAK\nROOM', type:'room',
+    doors:[{side:'W',center:2,width:2.4}] },
+  { x: 29,  z: 10,   w:10,  d: 7,  label:'ADMIN\nOFFICE', type:'room', poi:'poi',
+    doors:[{side:'W',center:10,width:2.4}] },
+  // lower row rooms
+  { x:-11,  z: 22,   w:10,  d: 9,  label:'RECORDS\nROOM', type:'room',
+    doors:[{side:'E',center:22,width:2.4}] },
+  { x: 11,  z: 22,   w:10,  d: 9,  label:'INTERROGATION\nROOM', type:'room', poi:'poi',
+    doors:[{side:'W',center:22,width:2.4}] },
+];
+
+function drawRoom(r) {
+  const rx = wx(r.x - r.w/2), ry = wz(r.z - r.d/2);
+  const rw = r.w * sx,         rh = r.d * sy;
+
+  // fill
+  let fill = C.roomFill;
+  if (r.type==='corridor'||r.type==='bridge'||r.type==='connector') fill = C.corridor;
+  ctx.fillStyle = fill;
+  ctx.fillRect(rx, ry, rw, rh);
+
+  // walls with doors
+  ctx.strokeStyle = C.roomStroke;
+  ctx.lineWidth = r.type==='room'||r.type==='special' ? 1.8 : 1.2;
+
+  if (!r.doors || r.doors.length === 0) {
+    ctx.strokeRect(rx, ry, rw, rh);
+  } else {
+    const dByS = { N:[], S:[], E:[], W:[] };
+    r.doors.forEach(d => dByS[d.side]?.push(d));
+
+    function side(x1, y1, x2, y2, horiz, gaps) {
+      if (!gaps.length) {
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); return;
+      }
+      let cur = horiz ? x1 : y1;
+      const end = horiz ? x2 : y2;
+      const sorted = [...gaps].sort((a,b)=>a.center-b.center);
+      sorted.forEach(d => {
+        const gs = horiz ? wx(d.center - d.width/2) : wz(d.center - d.width/2);
+        const ge = horiz ? wx(d.center + d.width/2) : wz(d.center + d.width/2);
+        if (gs > cur) {
+          ctx.beginPath();
+          if (horiz) { ctx.moveTo(cur,y1); ctx.lineTo(gs,y1); }
+          else       { ctx.moveTo(x1,cur); ctx.lineTo(x1,gs); }
+          ctx.stroke();
+        }
+        // draw door tick marks
+        ctx.strokeStyle = C.door;
+        ctx.lineWidth = 2;
+        const mid = (gs+ge)/2;
+        if (horiz) {
+          ctx.beginPath(); ctx.moveTo(gs, y1-4); ctx.lineTo(gs, y1+4); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(ge, y1-4); ctx.lineTo(ge, y1+4); ctx.stroke();
+        } else {
+          ctx.beginPath(); ctx.moveTo(x1-4, gs); ctx.lineTo(x1+4, gs); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x1-4, ge); ctx.lineTo(x1+4, ge); ctx.stroke();
+        }
+        ctx.strokeStyle = C.roomStroke;
+        ctx.lineWidth = r.type==='room'||r.type==='special' ? 1.8 : 1.2;
+        cur = ge;
+      });
+      if (end > cur) {
+        ctx.beginPath();
+        if (horiz) { ctx.moveTo(cur,y1); ctx.lineTo(end,y1); }
+        else       { ctx.moveTo(x1,cur); ctx.lineTo(x1,end); }
+        ctx.stroke();
+      }
+    }
+
+    side(rx,ry,      rx+rw, ry,      true,  dByS.N);
+    side(rx,ry+rh,   rx+rw, ry+rh,   true,  dByS.S);
+    side(rx,ry,      rx,    ry+rh,   false, dByS.W);
+    side(rx+rw,ry,   rx+rw, ry+rh,   false, dByS.E);
+  }
+
+  // room label
+  if (r.label) {
+    const cx2 = rx + rw/2, cy2 = ry + rh/2;
+    ctx.fillStyle = r.type==='special' ? C.label : C.labelDim;
+    ctx.font = `bold ${r.type==='special'?8:7}px 'Share Tech Mono', monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.letterSpacing = '0.06em';
+    const lines = r.label.split('\n');
+    const lh = 10;
+    lines.forEach((ln, i) => {
+      ctx.fillText(ln, cx2, cy2 - (lines.length-1)*lh/2 + i*lh);
+    });
+  }
+
+  // POI marker
+  if (r.poi) {
+    const mx = rx+rw/2, my = ry+rh/2 + (r.label ? 14 : 0);
+    if (r.poi === 'objective') {
+      // objective ring
+      ctx.strokeStyle = C.objective; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = 'transparent'; ctx.fill();
+    } else {
+      // POI dot
+      ctx.fillStyle = C.poi;
+      ctx.beginPath(); ctx.arc(mx, my, 3.5, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+// ── DRAW ──────────────────────────────────────────────────────────────────────
+// Background
+ctx.fillStyle = C.bg;
+ctx.fillRect(0, 0, W, H);
+
+// Scanlines (CRT effect)
+for (let y = 0; y < H; y += 3) {
+  ctx.fillStyle = C.scanline;
+  ctx.fillRect(0, y, W, 1);
+}
+
+// Subtle grid
+ctx.strokeStyle = C.grid;
+ctx.lineWidth = 0.5;
+for (let x = bounds.minX; x <= bounds.maxX; x += 10) {
+  ctx.beginPath(); ctx.moveTo(wx(x), PAD); ctx.lineTo(wx(x), H-PAD); ctx.stroke();
+}
+for (let z = bounds.minZ; z <= bounds.maxZ; z += 10) {
+  ctx.beginPath(); ctx.moveTo(PAD, wz(z)); ctx.lineTo(W-PAD, wz(z)); ctx.stroke();
+}
+
+// Rooms (corridors first, then rooms on top)
+rooms.filter(r => r.type==='corridor'||r.type==='connector'||r.type==='bridge').forEach(drawRoom);
+rooms.filter(r => r.type!=='corridor'&&r.type!=='connector'&&r.type!=='bridge').forEach(drawRoom);
+
+// Player triangle (at spawn: x=0, z=38)
+const px = wx(0), py = wz(38);
+ctx.save();
+ctx.translate(px, py);
+ctx.fillStyle = '#ffffff';
+ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(0, -9); ctx.lineTo(6, 6); ctx.lineTo(-6, 6); ctx.closePath();
+ctx.fill(); ctx.stroke();
+ctx.restore();
+
+// ── TITLE ─────────────────────────────────────────────────────────────────────
+ctx.fillStyle = C.legend;
+ctx.font = "bold 18px 'Share Tech Mono', monospace";
+ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+ctx.fillText('FACILITY MAP', PAD, 14);
+// title underline
+ctx.strokeStyle = 'rgba(196,30,30,0.5)'; ctx.lineWidth = 1;
+ctx.beginPath(); ctx.moveTo(PAD, 36); ctx.lineTo(PAD+130, 36); ctx.stroke();
+
+// ── LEGEND ────────────────────────────────────────────────────────────────────
+const lx = PAD, ly = 44;
+ctx.font = "10px 'Share Tech Mono', monospace";
+ctx.fillStyle = C.labelDim;
+ctx.textBaseline = 'middle';
+
+const legendItems = [
+  { draw: () => {
+      ctx.fillStyle='#fff'; ctx.beginPath();
+      ctx.moveTo(lx+6,ly+4); ctx.lineTo(lx+10,ly+13); ctx.lineTo(lx+2,ly+13); ctx.closePath(); ctx.fill();
+    }, label:'PLAYER' },
+  { draw: () => {
+      ctx.strokeStyle=C.objective; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(lx+6, ly+8.5, 5, 0, Math.PI*2); ctx.stroke();
+    }, label:'OBJECTIVE' },
+  { draw: () => {
+      ctx.fillStyle=C.poi;
+      ctx.beginPath(); ctx.arc(lx+6, ly+8.5, 3.5, 0, Math.PI*2); ctx.fill();
+    }, label:'POINT OF INTEREST' },
+  { draw: () => {
+      ctx.strokeStyle=C.roomStroke; ctx.lineWidth=1.5;
+      ctx.strokeRect(lx+1, ly+4, 10, 10);
+    }, label:'ROOM / OFFICE' },
+  { draw: () => {
+      ctx.strokeStyle=C.door; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(lx+1, ly+8.5); ctx.lineTo(lx+11, ly+8.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(lx+3, ly+5); ctx.lineTo(lx+3, ly+12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(lx+9, ly+5); ctx.lineTo(lx+9, ly+12); ctx.stroke();
+    }, label:'DOOR / ENTRY' },
+];
+
+legendItems.forEach((item, i) => {
+  const iy = ly + i * 20;
+  ctx.save();
+  ctx.translate(0, iy - ly);
+  item.draw();
+  ctx.restore();
+  ctx.fillStyle = C.labelDim;
+  ctx.font = "9px 'Share Tech Mono', monospace";
+  ctx.textAlign = 'left';
+  ctx.fillText(item.label, lx + 16, iy + 8.5);
+});
+
+// ── NORTH COMPASS ─────────────────────────────────────────────────────────────
+const cpx = W - 50, cpy = H - 50;
+ctx.strokeStyle = C.legend; ctx.lineWidth = 1.5;
+ctx.beginPath(); ctx.arc(cpx, cpy, 18, 0, Math.PI*2); ctx.stroke();
+// N arrow (pointing up = negative z)
+ctx.fillStyle = C.legend;
+ctx.beginPath();
+ctx.moveTo(cpx, cpy-14); ctx.lineTo(cpx+4, cpy-4); ctx.lineTo(cpx-4, cpy-4); ctx.closePath(); ctx.fill();
+ctx.strokeStyle = C.labelDim; ctx.lineWidth = 1;
+ctx.beginPath(); ctx.moveTo(cpx, cpy-4); ctx.lineTo(cpx, cpy+14); ctx.stroke();
+ctx.fillStyle = C.legend;
+ctx.font = "bold 10px 'Share Tech Mono', monospace";
+ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+ctx.fillText('N', cpx, cpy-22);
+
+// ── SECTOR INFO ───────────────────────────────────────────────────────────────
+const bx = PAD, by = H - PAD + 14;
+ctx.strokeStyle = 'rgba(196,30,30,0.4)'; ctx.lineWidth = 1;
+ctx.strokeRect(bx, by-4, 170, 32);
+ctx.fillStyle = C.labelDim;
+ctx.font = "9px 'Share Tech Mono', monospace";
+ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+ctx.fillText('SECTOR: A-1', bx+6, by+1);
+ctx.fillText('CLEARANCE: LEVEL 4', bx+6, by+13);
+
+// Border frame
+ctx.strokeStyle = 'rgba(196,30,30,0.3)'; ctx.lineWidth = 1;
+ctx.strokeRect(4, 4, W-8, H-8);
+ctx.strokeStyle = 'rgba(196,30,30,0.15)'; ctx.lineWidth = 1;
+ctx.strokeRect(8, 8, W-16, H-16);
+</script>
+</body>
+</html>
