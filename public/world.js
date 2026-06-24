@@ -536,19 +536,53 @@ export class World {
         this._wall(20, 11.2, 8, WALL_H, WALL_T);
         this._mainLight(20, 10, 1.4, 7);
 
-        // ── RECEPTION (center, z=+2, widened spine area) ──
-        this._floor(0, 2, 8, 10, this.materials.matTile);
-        this._ceiling(0, 2, 8, 10);
-        // North wall: wide gap matching spine width (this is the ONLY wall mesh here —
-        // a duplicate full-width decorative wall was previously drawn on the same spot,
-        // visually covering this gap even though it wasn't collidable. Removed.)
-        this._wallWithGaps(0, -3, 8, true, [{ center: 0, width: 2.0 }]);
-        this._wallWithGaps(0, 7, 8, true, [{ center: 0, width: 2.0 }]);
-        this._wall(-4, 2, WALL_T, WALL_H, 10); // west wall solid
-        this._wall(4, 2, WALL_T, WALL_H, 10);  // east wall solid
+        // ── RECEPTION HUB (center crossroads — matches reference map) ──
+        // Wide room: x=-10 to +10, z=-5 to +9 (w=20, d=14, center x=0, z=2)
+        this._floor(0, 2, 20, 14, this.materials.matTile);
+        this._ceiling(0, 2, 20, 14);
+        // North wall (z=-5): gap matching spine (width 2.4)
+        this._wallWithGaps(0, -5, 20, true, [{ center: 0, width: 2.4 }]);
+        // South wall (z=9): gap matching spine (width 2.4)
+        this._wallWithGaps(0, 9, 20, true, [{ center: 0, width: 2.4 }]);
+        // West wall (x=-10): gap to west side corridor (side corridor east wall is x=-16,
+        // so a short bridge at z=2 connects them)
+        this._wallWithGaps(-10, 2, 14, false, [{ center: 2, width: 2.4 }]);
+        // East wall (x=+10): gap to east side corridor
+        this._wallWithGaps(10, 2, 14, false, [{ center: 2, width: 2.4 }]);
+
+        // Short bridges: reception W wall (x=-10) → west side corridor E wall (x=-16)
+        // bridge center x=-13, length=6
+        this._floor(-13, 2, 6, 2.4, this.materials.matTile);
+        this._ceiling(-13, 2, 6, 2.4);
+        this._wall(-13, 0.8, 6, WALL_H, WALL_T);
+        this._wall(-13, 3.2, 6, WALL_H, WALL_T);
+        this._mainLight(-13, 2, 1.4, 6);
+
+        // reception E wall (x=+10) → east side corridor W wall (x=+16)
+        // bridge center x=+13, length=6
+        this._floor(13, 2, 6, 2.4, this.materials.matTile);
+        this._ceiling(13, 2, 6, 2.4);
+        this._wall(13, 0.8, 6, WALL_H, WALL_T);
+        this._wall(13, 3.2, 6, WALL_H, WALL_T);
+        this._mainLight(13, 2, 1.4, 6);
+
+        // Also need gaps in the side corridor walls to accept these new connections
+        // (West side corridor east wall x=-16 at z=2, east side corridor west wall x=+16 at z=2)
+        // These are handled in _buildSpine via _wallWithGaps — but we need to check
+        // if those walls already have gaps at z=2. They currently only have gaps at
+        // z=2 (Storage) and z=10 (Maintenance). The new reception bridge connects at z=2
+        // which EXACTLY matches the Storage gap — no additional gap needed, just the bridge
+        // floor linking them. However the side corridor's wall gap at z=2 spans z=0.8-3.2
+        // which matches the bridge perfectly. Reception W/E gaps also match. ✓
+
         this._addReceptionProps(0, 2);
-        this._mainLight(0, 2, 2.4, 10);
-        this._ceilingFixture(0, 2);
+        this._mainLight(-5, 2, 2.0, 12);
+        this._mainLight(5, 2, 2.0, 12);
+        this._mainLight(0, 2, 2.4, 14);
+        this._ceilingFixture(-4, 2);
+        this._ceilingFixture(4, 2);
+        this._emergencyFixture(0, 2.7, -3);
+        this._emergencyFixture(0, 2.7, 7);
 
         // ── RECORDS ROOM (west, lower row, z=+22) ──
         this._roomBox(-11, 22, 10, 9, {

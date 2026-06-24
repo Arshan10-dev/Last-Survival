@@ -151,7 +151,9 @@ function drawFacilityMap() {
       {x:20, z:2,   w:8, d:2.4,t:'b'},{x:20,z:10,w:8,d:2.4,t:'b'},
       {x:0,  z:-38, w:10,d:8,  t:'s', lb:'EXIT AREA',   poi:'obj', doors:[{s:'S',c:0,gw:2.6}]},
       {x:0,  z:38,  w:10,d:8,  t:'s', lb:'MAIN\nENTRANCE',      doors:[{s:'N',c:0,gw:2.6}]},
-      {x:0,  z:2,   w:8, d:10, t:'r', lb:'RECEPTION',   poi:'poi', doors:[{s:'N',c:0,gw:4},{s:'S',c:0,gw:4}]},
+      {x:0,  z:2,   w:20,d:14, t:'r', lb:'RECEPTION',   poi:'poi', doors:[{s:'N',c:0,gw:2.4},{s:'S',c:0,gw:2.4},{s:'W',c:2,gw:2.4},{s:'E',c:2,gw:2.4}]},
+      {x:-13,z:2,   w:6, d:2.4,t:'b'},  // reception W bridge
+      {x:13, z:2,   w:6, d:2.4,t:'b'},  // reception E bridge
       {x:-11,z:-22, w:10,d:9,  t:'r', lb:'SERVER ROOM',          doors:[{s:'E',c:-22,gw:2.4}]},
       {x:11, z:-22, w:10,d:9,  t:'r', lb:'LABORATORY',           doors:[{s:'W',c:-22,gw:2.4}]},
       {x:-11,z:-12, w:10,d:9,  t:'r', lb:'SECURITY\nOFFICE',poi:'poi',doors:[{s:'E',c:-12,gw:2.4},{s:'W',c:-12,gw:2.4}]},

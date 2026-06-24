@@ -172,9 +172,17 @@ export class UI {
       { x: 29,  z: 10, w: 10, d: 7, doors: [{ side: 'W', center: 10, width: 2.4 }] },  // Admin Office
       { x: 20,  z: 10, w: 8,  d: 2.4 },                                                  // bridge
 
-      // ── Reception (center hub) ──
-      { x: 0,   z: 2, w: 8, d: 10,
-        doors: [{ side: 'N', center: 0, width: 4 }, { side: 'S', center: 0, width: 4 }] },
+      // ── Reception (expanded hub matching reference map) ──
+      { x: 0,   z: 2, w: 20, d: 14,
+        doors: [
+          { side: 'N', center: 0,  width: 2.4 },
+          { side: 'S', center: 0,  width: 2.4 },
+          { side: 'W', center: 2,  width: 2.4 },
+          { side: 'E', center: 2,  width: 2.4 },
+        ]
+      },
+      { x: -13, z: 2,  w: 6,  d: 2.4 },  // reception → west side corridor bridge
+      { x: 13,  z: 2,  w: 6,  d: 2.4 },  // reception → east side corridor bridge
 
       // ── Lower row + bridges ──
       { x: -11, z: 22, w: 10, d: 9, doors: [{ side: 'E', center: 22, width: 2.4 }] },  // Records Room
