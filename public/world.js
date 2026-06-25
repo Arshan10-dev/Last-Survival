@@ -460,7 +460,7 @@ export class World {
         // Corridor width=4 -> west wall at x=-20, center at x=-18.
         this._floor(-18, -1, 4, 26, this.materials.matTile);
         this._ceiling(-18, -1, 4, 26);
-        this._wallWithGaps(-16, -1, 26, false, [{ center: 2, width: 2.4 }, { center: 10, width: 2.4 }]); // east wall: gaps to Storage/Maint
+        this._wallWithGaps(-16, -1, 26, false, [{ center: 2, width: 4 }, { center: 10, width: 2.4 }]); // east wall: wider gap at z=2 for reception bridge
         this._wall(-20, -1, WALL_T, WALL_H, 26); // west wall: solid
         // North cap at z=-12 — wide open, directly continuous with Security Office's
         // doorway (no separate gap math needed; the corridor simply terminates exactly
@@ -503,7 +503,7 @@ export class World {
         // meet Medical Office's east door (fixed at 11+5=16).
         this._floor(18, -1, 4, 26, this.materials.matTile);
         this._ceiling(18, -1, 4, 26);
-        this._wallWithGaps(16, -1, 26, false, [{ center: 2, width: 2.4 }, { center: 10, width: 2.4 }]); // west wall: gaps to Break/Admin
+        this._wallWithGaps(16, -1, 26, false, [{ center: 2, width: 4 }, { center: 10, width: 2.4 }]); // west wall: wider gap at z=2 for reception bridge
         this._wall(20, -1, WALL_T, WALL_H, 26); // east wall: solid
         this._mainLight(18, -1, 1.4, 12);
         this._emergencyFixture(18, 2.7, 4);
@@ -546,26 +546,25 @@ export class World {
         this._wallWithGaps(0, -5, 20, true, [{ center: 0, width: 2.4 }]);
         // South wall (z=9): gap matching spine (width 2.4)
         this._wallWithGaps(0, 9, 20, true, [{ center: 0, width: 2.4 }]);
-        // West wall (x=-10): gap to west side corridor (side corridor east wall is x=-16,
-        // so a short bridge at z=2 connects them)
-        this._wallWithGaps(-10, 2, 14, false, [{ center: 2, width: 2.4 }]);
-        // East wall (x=+10): gap to east side corridor
-        this._wallWithGaps(10, 2, 14, false, [{ center: 2, width: 2.4 }]);
+        // West wall (x=-10): only short corner pillars at N/S ends, middle is fully open
+        // so player can walk freely between reception and the space beyond
+        this._wall(-10, -4.25, WALL_T, WALL_H, 1.5);  // North corner pillar
+        this._wall(-10, 8.25,  WALL_T, WALL_H, 1.5);  // South corner pillar
+        // East wall (x=+10): same — corner pillars only
+        this._wall(10, -4.25, WALL_T, WALL_H, 1.5);   // North corner pillar
+        this._wall(10, 8.25,  WALL_T, WALL_H, 1.5);   // South corner pillar
 
-        // Short bridges: reception W wall (x=-10) → west side corridor E wall (x=-16)
-        // bridge center x=-13, length=6
-        this._floor(-13, 2, 6, 2.4, this.materials.matTile);
-        this._ceiling(-13, 2, 6, 2.4);
-        this._wall(-13, 0.8, 6, WALL_H, WALL_T);
-        this._wall(-13, 3.2, 6, WALL_H, WALL_T);
+        // Bridges: reception → side corridors (wider now that walls are open)
+        this._floor(-13, 2, 6, 4, this.materials.matTile);
+        this._ceiling(-13, 2, 6, 4);
+        this._wall(-13, 0, 6, WALL_H, WALL_T);
+        this._wall(-13, 4, 6, WALL_H, WALL_T);
         this._mainLight(-13, 2, 1.4, 6);
 
-        // reception E wall (x=+10) → east side corridor W wall (x=+16)
-        // bridge center x=+13, length=6
-        this._floor(13, 2, 6, 2.4, this.materials.matTile);
-        this._ceiling(13, 2, 6, 2.4);
-        this._wall(13, 0.8, 6, WALL_H, WALL_T);
-        this._wall(13, 3.2, 6, WALL_H, WALL_T);
+        this._floor(13, 2, 6, 4, this.materials.matTile);
+        this._ceiling(13, 2, 6, 4);
+        this._wall(13, 0, 6, WALL_H, WALL_T);
+        this._wall(13, 4, 6, WALL_H, WALL_T);
         this._mainLight(13, 2, 1.4, 6);
 
         // Also need gaps in the side corridor walls to accept these new connections
