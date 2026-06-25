@@ -306,12 +306,14 @@ export class World {
         this._wallWithGaps(-2, -1, 60, false, [
             { center: -22, width: 2.4 },  // Server Room
             { center: -12, width: 2.4 },  // Security Office
+            { center: 2,   width: 14  },  // Reception hub (full room depth, removes wall inside the room)
             { center: 22,  width: 2.4 },  // Records Room
         ]);
         // East spine wall (x=+2): mirrored gaps
         this._wallWithGaps(2, -1, 60, false, [
             { center: -22, width: 2.4 },  // Laboratory
             { center: -12, width: 2.4 },  // Medical Office
+            { center: 2,   width: 14  },  // Reception hub
             { center: 22,  width: 2.4 },  // Interrogation Room
         ]);
 
