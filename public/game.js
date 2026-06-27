@@ -139,31 +139,44 @@ function drawFacilityMap() {
     for (let z=bounds.minZ; z<=bounds.maxZ; z+=10) { ctx.beginPath(); ctx.moveTo(PAD,wz(z)); ctx.lineTo(W-PAD,wz(z)); ctx.stroke(); }
 
     const rooms = [
-      {x:0,  z:-1,  w:4, d:60, t:'c'},
-      {x:0,  z:-32.5,w:4,d:3,  t:'c'},
-      {x:0,  z:31.5, w:4,d:5,  t:'c'},
-      {x:-18,z:-.5, w:4, d:26, t:'c'},
-      {x:18, z:-.5, w:4, d:26, t:'c'},
-      {x:-4, z:-22, w:4, d:2.4,t:'b'},{x:4,z:-22,w:4,d:2.4,t:'b'},
-      {x:-4, z:-12, w:4, d:2.4,t:'b'},{x:4,z:-12,w:4,d:2.4,t:'b'},
-      {x:-4, z:22,  w:4, d:2.4,t:'b'},{x:4,z:22, w:4,d:2.4,t:'b'},
-      {x:-20,z:2,   w:8, d:2.4,t:'b'},{x:-20,z:10,w:8,d:2.4,t:'b'},
-      {x:20, z:2,   w:8, d:2.4,t:'b'},{x:20,z:10,w:8,d:2.4,t:'b'},
-      {x:0,  z:-38, w:10,d:8,  t:'s', lb:'EXIT AREA',   poi:'obj', doors:[{s:'S',c:0,gw:2.6}]},
-      {x:0,  z:38,  w:10,d:8,  t:'s', lb:'MAIN\nENTRANCE',      doors:[{s:'N',c:0,gw:2.6}]},
-      {x:0,  z:2,   w:20,d:14, t:'r', lb:'RECEPTION',   poi:'poi', doors:[{s:'N',c:0,gw:2.4},{s:'S',c:0,gw:2.4},{s:'W',c:2,gw:2.4},{s:'E',c:2,gw:2.4}]},
-      {x:-13,z:2,   w:6, d:2.4,t:'b'},  // reception W bridge
-      {x:13, z:2,   w:6, d:2.4,t:'b'},  // reception E bridge
-      {x:-11,z:-22, w:10,d:9,  t:'r', lb:'SERVER ROOM',          doors:[{s:'E',c:-22,gw:2.4}]},
-      {x:11, z:-22, w:10,d:9,  t:'r', lb:'LABORATORY',           doors:[{s:'W',c:-22,gw:2.4}]},
-      {x:-11,z:-12, w:10,d:9,  t:'r', lb:'SECURITY\nOFFICE',poi:'poi',doors:[{s:'E',c:-12,gw:2.4},{s:'W',c:-12,gw:2.4}]},
-      {x:11, z:-12, w:10,d:9,  t:'r', lb:'MEDICAL\nOFFICE', poi:'poi',doors:[{s:'W',c:-12,gw:2.4},{s:'E',c:-12,gw:2.4}]},
-      {x:-29,z:2,   w:10,d:9,  t:'r', lb:'STORAGE\nROOM',        doors:[{s:'E',c:2,gw:2.4}]},
-      {x:-29,z:10,  w:10,d:7,  t:'r', lb:'MAINTENANCE\nROOM',poi:'obj',doors:[{s:'E',c:10,gw:2.4}]},
-      {x:29, z:2,   w:10,d:9,  t:'r', lb:'BREAK\nROOM',          doors:[{s:'W',c:2,gw:2.4}]},
-      {x:29, z:10,  w:10,d:7,  t:'r', lb:'ADMIN\nOFFICE',  poi:'poi',doors:[{s:'W',c:10,gw:2.4}]},
-      {x:-11,z:22,  w:10,d:9,  t:'r', lb:'RECORDS\nROOM',        doors:[{s:'E',c:22,gw:2.4}]},
-      {x:11, z:22,  w:10,d:9,  t:'r', lb:'INTERROGATION\nROOM',poi:'poi',doors:[{s:'W',c:22,gw:2.4}]},
+      // ── Spine (main N-S corridor, z=-30 to +30) ──
+      {x:0,  z:0,   w:4, d:60, t:'c'},
+      // Exit connector (z=-32 to -30)
+      {x:0,  z:-31, w:4, d:2,  t:'c'},
+      // Entrance connector (z=+30 to +32)
+      {x:0,  z:31,  w:4, d:2,  t:'c'},
+      // West side corridor (x=-10 to -16, z=-3 to +7)
+      {x:-13,z:2,   w:6, d:10, t:'c'},
+      // East side corridor (x=+10 to +16, z=-3 to +7)
+      {x:13, z:2,   w:6, d:10, t:'c'},
+      // Security Office bridge (x=-6 to -2, z=-18)
+      {x:-4, z:-18, w:4, d:2.4,t:'b'},
+      // Laboratory bridge (x=+2 to +6, z=-18)
+      {x:4,  z:-18, w:4, d:2.4,t:'b'},
+      // Records Room bridge (x=-6 to -2, z=+18)
+      {x:-4, z:18,  w:4, d:2.4,t:'b'},
+      // Meeting Room bridge (x=+2 to +6, z=+18)
+      {x:4,  z:18,  w:4, d:2.4,t:'b'},
+      // Storage Room bridge (x=-22 to -16, z=+2)
+      {x:-19,z:2,   w:6, d:2.4,t:'b'},
+      // Maintenance Room bridge (x=-22 to -16, z=+10)
+      {x:-19,z:10,  w:6, d:2.4,t:'b'},
+      // Break Room bridge (x=+16 to +22, z=+2)
+      {x:19, z:2,   w:6, d:2.4,t:'b'},
+      // Admin Office bridge (x=+16 to +22, z=+10)
+      {x:19, z:10,  w:6, d:2.4,t:'b'},
+      // ── Rooms ──
+      {x:0,  z:-36, w:10,d:8,  t:'s', lb:'EXIT AREA',        poi:'obj', doors:[{s:'S',c:0,  gw:2.6}]},
+      {x:0,  z:36,  w:10,d:8,  t:'s', lb:'MAIN\nENTRANCE',             doors:[{s:'N',c:0,  gw:2.6}]},
+      {x:0,  z:2,   w:20,d:10, t:'r', lb:'RECEPTION',         poi:'poi', doors:[{s:'N',c:0,gw:2.4},{s:'S',c:0,gw:2.4}]},
+      {x:-11,z:-18, w:10,d:9,  t:'r', lb:'SECURITY\nOFFICE', poi:'poi', doors:[{s:'E',c:-18,gw:2.4}]},
+      {x:11, z:-18, w:10,d:9,  t:'r', lb:'LABORATORY',                  doors:[{s:'W',c:-18,gw:2.4}]},
+      {x:-27,z:2,   w:10,d:9,  t:'r', lb:'STORAGE\nROOM',              doors:[{s:'E',c:2,  gw:2.4}]},
+      {x:-27,z:10,  w:10,d:7,  t:'r', lb:'MAINTENANCE\nROOM',poi:'obj', doors:[{s:'E',c:10, gw:2.4}]},
+      {x:27, z:2,   w:10,d:9,  t:'r', lb:'BREAK\nROOM',                doors:[{s:'W',c:2,  gw:2.4}]},
+      {x:27, z:10,  w:10,d:7,  t:'r', lb:'ADMIN\nOFFICE',   poi:'poi', doors:[{s:'W',c:10, gw:2.4}]},
+      {x:-11,z:18,  w:10,d:9,  t:'r', lb:'RECORDS\nROOM',              doors:[{s:'E',c:18, gw:2.4}]},
+      {x:11, z:18,  w:10,d:9,  t:'r', lb:'MEETING\nROOM',   poi:'poi', doors:[{s:'W',c:18, gw:2.4}]},
     ];
 
     const drawR = r => {
@@ -224,8 +237,8 @@ function drawFacilityMap() {
     rooms.filter(r=>r.t==='c'||r.t==='b').forEach(drawR);
     rooms.filter(r=>r.t==='r'||r.t==='s').forEach(drawR);
 
-    // Player marker at spawn (0, 38)
-    const ppx=wx(0), ppy=wz(38);
+    // Player marker at spawn (0, 36)
+    const ppx=wx(0), ppy=wz(36);
     ctx.save(); ctx.translate(ppx,ppy);
     ctx.fillStyle='#fff'; ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(0,-8); ctx.lineTo(5,6); ctx.lineTo(-5,6); ctx.closePath();
@@ -341,20 +354,20 @@ function buildRun() {
     const player = new Player(engine.camera, engine.scene, world, audio);
     const creature = new Creature(engine.scene, world, audio);
 
-    // spawn player in entrance (new entrance center is -26, 20.8)
-    player.setSpawn(0, 38);
+    // spawn player in entrance hall (center 0, 36)
+    player.setSpawn(0, 36);
 
-    // creature spawns in the west branch (Security Office area) — start of its patrol loop
-    creature.setSpawn(-11, -12);
+    // creature spawns in Security Office (west upper, center -11, -18)
+    creature.setSpawn(-11, -18);
 
     ui.initMinimap(world);
 
     // Objectives
     const objectives = [
-        { id: 1, text: 'Find the Security Keycard', state: 'current',  target: { x: -11, z: -12  } },
+        { id: 1, text: 'Find the Security Keycard', state: 'current',  target: { x: -11, z: -18  } },
         { id: 2, text: 'Open the Security Office',  state: 'pending',  target: null                  },
-        { id: 3, text: 'Restore Generator Power',   state: 'pending',  target: { x: -29, z: 10   } },
-        { id: 4, text: 'Unlock Main Exit Gate',      state: 'pending',  target: { x: 0,   z: -38  } },
+        { id: 3, text: 'Restore Generator Power',   state: 'pending',  target: { x: -27, z: 10   } },
+        { id: 4, text: 'Unlock Main Exit Gate',      state: 'pending',  target: { x: 0,   z: -36  } },
         { id: 5, text: 'Escape the Facility',        state: 'pending',  target: null                  }
     ];
     ui.renderObjectives(objectives);
@@ -467,7 +480,7 @@ function buildRun() {
             audio.pickup();
             world.removeInteractable(it);
             objectives[0].state = 'done';
-            objectives[1].state = 'current'; objectives[1].target = { x: -22, z: 12 };
+            objectives[1].state = 'current'; objectives[1].target = { x: -11, z: -18 };
             ui.renderObjectives(objectives);
             ui.showSubtitle('Picked up: SECURITY KEYCARD', 3.2);
             // unlock objective 2 = \"Open Security Office\" — actually keycard unlocks no door physically in this build; mark complete on pickup as both done
@@ -537,7 +550,7 @@ function buildRun() {
             it.data.screen.material.emissive = new THREE.Color(0x4fbc94);
             audio.doorCreak();
             objectives[3].state = 'done';
-            objectives[4].state = 'current'; objectives[4].target = { x: 32, z: 14 };
+            objectives[4].state = 'current'; objectives[4].target = { x: 0, z: -36 };
             ui.renderObjectives(objectives);
             ui.showSubtitle('GATE OPENED. RUN.', 4);
         }

@@ -2,21 +2,22 @@ import * as THREE from 'three';
 import { buildConcreteSet, buildMetalSet, buildTileSet, buildDustParticleTexture, buildPaperTexture, buildSignTexture } from './textures.js';
 
 /*
-  Grid units = 1 meter. Facility layout — cross-shaped, single central N-S spine.
-  (top-down, z negative = north/up, z positive = south/down, x negative = west)
+  Grid units = 1 meter. Facility layout — cross-shaped, N-S central spine.
+  (top-down, z negative = north, z positive = south, x negative = west)
 
-                      [EXIT AREA]              z=-38
-                           |
-       [SECURITY]----+----[LAB]               z=-22
-                      |
-   [STORAGE]          |          [BREAK]       z=+2  (Reception, widened)
-   [MAINT.]      [RECEPTION]     [ADMIN]       z=+10
-                      |
-      [RECORDS]-------+-------[MEETING]        z=+22
-                      |
-               [MAIN ENTRANCE]                 z=+38
+              [EXIT AREA]                   z=-36
+                   |  connector z=-32..-30
+  [SECURITY]--[SPINE]--[LABORATORY]         z=-18
+                   |
+  [STORAGE]  [W.CORR][RECEPTION][E.CORR]  [BREAK]   z=+2
+  [MAINT.]                                [ADMIN]    z=+10
+                   |
+  [RECORDS]--[SPINE]--[MEETING]             z=+18
+                   |  connector z=+30..+32
+              [ENTRANCE]                    z=+36
 
-  See _buildRoomsClean(), _buildExitArea(), _buildMainEntranceArea() for the full layout.
+  Spine: x=0, width=4, z=-30 to +30.
+  See _buildSpine(), _buildRoomsClean(), _buildExitArea(), _buildMainEntranceArea().
 */
 
 const WALL_H = 3.2;
@@ -271,58 +272,57 @@ export class World {
 
     // ---------- CORRIDOR SPINE ----------
     // ============================================================================
-    // FACILITY LAYOUT — cross-shaped, single central N-S spine corridor.
-    // (top-down, z negative = north/up, z positive = south/down, x negative = west)
+    // FACILITY LAYOUT — cross-shaped, N-S central spine + E-W side corridors.
+    // (top-down, z negative = north, z positive = south, x negative = west)
     //
-    //                    [EXIT AREA]            z=-38
-    //                         |
-    //     [SECURITY]----+----[LAB]              z=-22
-    //                    |
-    //  [STORAGE]         |         [BREAK]      z=+2 (Reception, widened)
-    //  [MAINT.]     [RECEPTION]    [ADMIN]      z=+10
-    //                    |
-    //     [RECORDS]------+------[MEETING]       z=+22
-    //                    |
-    //              [MAIN ENTRANCE]              z=+38
+    //              [EXIT AREA]                   z=-36
+    //                   |
+    //  [SECURITY]---[SPINE]---[LABORATORY]       z=-18
+    //                   |
+    //  [STORAGE] -[W.CORR]-[RECEPTION]-[E.CORR]-[BREAK]   z=+2
+    //  [MAINT.]                                 [ADMIN]    z=+10
+    //                   |
+    //  [RECORDS]---[SPINE]---[MEETING]           z=+18
+    //                   |
+    //              [ENTRANCE]                    z=+36
     //
-    // Spine runs x=0, width=4, from z=-30 (Exit) to z=+28 (Entrance).
-    // Security and Laboratory connect directly off the spine at z=-22.
-    // Storage/Maintenance and Break/Admin form outer side-columns connected
-    // via short corridors from the reception hub.
+    // Spine: x=0, width=4, z=-30 to +30.
+    // Security/Lab connect directly off spine at z=-18 via short bridges.
+    // Records/Meeting connect directly off spine at z=+18 via short bridges.
+    // Reception hub at z=+2, open to spine. Side corridors hang west/east of reception.
+    // Storage/Maint on far west (x=-27), Break/Admin on far east (x=+27).
     // ============================================================================
 
     _buildSpine() {
         const spineW = 4;
-        // Full-length central corridor floor/ceiling, one continuous strip
-        this._floor(0, -1, spineW, 60, this.materials.matTile);
-        this._ceiling(0, -1, spineW, 60);
+        // Central spine floor + ceiling (z=-30 to z=+30, length=60)
+        this._floor(0, 0, spineW, 60, this.materials.matTile);
+        this._ceiling(0, 0, spineW, 60);
 
-        // West spine wall (x=-2): gaps wherever a room opens onto the corridor
-        this._wallWithGaps(-2, -1, 60, false, [
-            { center: -22, width: 2.4 },  // Security Office
-            { center: 2,   width: 14  },  // Reception hub (full room depth)
-            { center: 22,  width: 2.4 },  // Records Room
+        // West spine wall (x=-2) — gaps where rooms connect
+        this._wallWithGaps(-2, 0, 60, false, [
+            { center: -18, width: 2.4 },  // Security Office bridge
+            { center: 2,   width: 10  },  // Reception hub (open west side)
+            { center: 18,  width: 2.4 },  // Records Room bridge
         ]);
-        // East spine wall (x=+2): mirrored gaps
-        this._wallWithGaps(2, -1, 60, false, [
-            { center: -22, width: 2.4 },  // Laboratory
-            { center: 2,   width: 14  },  // Reception hub
-            { center: 22,  width: 2.4 },  // Meeting Room
+        // East spine wall (x=+2) — mirrored
+        this._wallWithGaps(2, 0, 60, false, [
+            { center: -18, width: 2.4 },  // Laboratory bridge
+            { center: 2,   width: 10  },  // Reception hub (open east side)
+            { center: 18,  width: 2.4 },  // Meeting Room bridge
         ]);
 
-        // Spine end caps
-        // North cap: gap matches the Exit Area connector corridor width (4)
-        this._wallWithGaps(0, -31, spineW, true, [{ center: 0, width: 4 }]);
-        // South cap: gap matches the Main Entrance connector corridor width (4)
-        this._wallWithGaps(0, 29,  spineW, true, [{ center: 0, width: 4 }]);
+        // North cap (z=-30): gap for exit connector
+        this._wallWithGaps(0, -30, spineW, true, [{ center: 0, width: 4 }]);
+        // South cap (z=+30): gap for entrance connector
+        this._wallWithGaps(0, 30, spineW, true, [{ center: 0, width: 4 }]);
 
-        // Corridor lighting along the spine
-        for (let z = -26; z <= 24; z += 8) this._emergencyFixture(0, 2.7, z);
-        this._mainLight(0, -22, 1.6, 9);
-        this._mainLight(0, 2,   1.4, 8);
-        this._mainLight(0, 12,  1.6, 9);
-        this._mainLight(0, 22,  1.6, 9);
-        this._sign(0, 2.6, -10, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
+        // Spine corridor lighting
+        for (let z = -26; z <= 26; z += 8) this._emergencyFixture(0, 2.7, z);
+        this._mainLight(0, -18, 1.6, 8);
+        this._mainLight(0, 0,   1.4, 8);
+        this._mainLight(0, 18,  1.6, 8);
+        this._sign(0, 2.6, -8, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
     }
 
     _wallWithGaps(x, z, length, isHorizontal, gapCenters, gapWidth = 2.0) {
@@ -378,214 +378,193 @@ export class World {
     }
 
     _buildRoomsClean() {
-        // Each room is a fully independent _roomBox — its own 4 walls, regardless of
-        // whether one of those walls sits right next to the spine wall. This avoids
-        // the shared-wall alignment bugs from earlier iterations: every room is
-        // self-contained and guaranteed sealed except at its own doorway.
-
-        // ── SECURITY OFFICE (west, upper row, z=-22) ──
-        this._roomBox(-11, -22, 10, 9, {
+        // ── SECURITY OFFICE (west, z=-18) ──
+        // Room: center (-11, -18), 10×9. East door to spine bridge.
+        this._roomBox(-11, -18, 10, 9, {
             name: 'Security Office',
-            doorways: [
-                { side: 'E', offset: 0, width: 2.4 },   // to spine
-                { side: 'W', offset: 0, width: 2.4 },   // to west side corridor
-            ]
+            doorways: [{ side: 'E', offset: 0, width: 2.4 }]
         });
-        this._addSecurityProps(-11, -22);
-        this._emergencyFixture(-11, 2.7, -22);
-        this._mainLight(-11, -22, 1.8, 9);
-        // Bridge: Security Office east door (x=-6) to spine west wall (x=-2)
-        this._floor(-4, -22, 4, 2.4, this.materials.matTile);
-        this._ceiling(-4, -22, 4, 2.4);
-        this._wall(-4, -23.2, 4, WALL_H, WALL_T);
-        this._wall(-4, -20.8, 4, WALL_H, WALL_T);
+        this._addSecurityProps(-11, -18);
+        this._emergencyFixture(-11, 2.7, -18);
+        this._mainLight(-11, -18, 1.8, 9);
+        // Bridge: room east door (x=-6) to spine west wall (x=-2), 4 units wide
+        this._floor(-4, -18, 4, 2.4, this.materials.matTile);
+        this._ceiling(-4, -18, 4, 2.4);
+        this._wall(-4, -19.2, 4, WALL_H, WALL_T);
+        this._wall(-4, -16.8, 4, WALL_H, WALL_T);
 
-        // ── LABORATORY (east, upper row, z=-22) ──
-        this._roomBox(11, -22, 10, 9, {
+        // ── LABORATORY (east, z=-18) ──
+        this._roomBox(11, -18, 10, 9, {
             name: 'Laboratory',
             doorways: [{ side: 'W', offset: 0, width: 2.4 }]
         });
-        this._addLabProps(11, -22);
-        this._emergencyFixture(11, 2.7, -22);
-        this._mainLight(11, -22, 1.8, 9);
-        // Bridge: Laboratory west door (x=6) to spine east wall (x=2)
-        this._floor(4, -22, 4, 2.4, this.materials.matTile);
-        this._ceiling(4, -22, 4, 2.4);
-        this._wall(4, -23.2, 4, WALL_H, WALL_T);
-        this._wall(4, -20.8, 4, WALL_H, WALL_T);
+        this._addLabProps(11, -18);
+        this._emergencyFixture(11, 2.7, -18);
+        this._mainLight(11, -18, 1.8, 9);
+        // Bridge: room west door (x=6) to spine east wall (x=2)
+        this._floor(4, -18, 4, 2.4, this.materials.matTile);
+        this._ceiling(4, -18, 4, 2.4);
+        this._wall(4, -19.2, 4, WALL_H, WALL_T);
+        this._wall(4, -16.8, 4, WALL_H, WALL_T);
 
-        // ── WEST SIDE COLUMN: Storage (z=+2) + Maintenance (z=+10) ──
-        // Side corridor east wall at x=-16 meets Security Office west door (x=-11-5=-16).
-        // Corridor runs z=-26 to z=+12 (length=38, center=-7).
-        // East wall gaps: z=-22 (Security west door), z=+2 (Storage bridge), z=+10 (Maint bridge).
-        this._floor(-18, -7, 4, 38, this.materials.matTile);
-        this._ceiling(-18, -7, 4, 38);
-        this._wallWithGaps(-16, -7, 38, false, [
-            { center: -22, width: 2.4 },  // Security Office west door
-            { center: 2,   width: 4   },  // Storage bridge
-            { center: 10,  width: 2.4 },  // Maintenance bridge
+        // ── RECEPTION HUB (center, z=+2) ──
+        // Room spans x=-10 to +10, z=-3 to +7 (w=20, d=10, center 0,+2)
+        // North/south walls have spine gaps; east/west walls are corner pillars only —
+        // the middle is open so the side corridors flow right in.
+        this._floor(0, 2, 20, 10, this.materials.matTile);
+        this._ceiling(0, 2, 20, 10);
+        // North wall z=-3: gap for spine (width 2.4 centred at x=0)
+        this._wallWithGaps(0, -3, 20, true, [{ center: 0, width: 2.4 }]);
+        // South wall z=+7: gap for spine
+        this._wallWithGaps(0, 7, 20, true, [{ center: 0, width: 2.4 }]);
+        // West wall x=-10: only corner pillars, rest is open to west corridor
+        this._wall(-10, -2.35, WALL_T, WALL_H, 1.3);
+        this._wall(-10, 6.35,  WALL_T, WALL_H, 1.3);
+        // East wall x=+10: same
+        this._wall(10, -2.35, WALL_T, WALL_H, 1.3);
+        this._wall(10, 6.35,  WALL_T, WALL_H, 1.3);
+        this._addReceptionProps(0, 2);
+        this._mainLight(-4, 2, 2.0, 10);
+        this._mainLight(4, 2, 2.0, 10);
+        this._mainLight(0, 2, 2.4, 14);
+        this._ceilingFixture(-3, 2);
+        this._ceilingFixture(3, 2);
+        this._emergencyFixture(0, 2.7, -1);
+        this._emergencyFixture(0, 2.7, 5);
+
+        // ── WEST SIDE CORRIDOR (x=-13 centre, z=-3 to +7, connecting to Storage/Maint) ──
+        // Corridor: width=4, east wall x=-10 (open via reception), west wall x=-16 solid.
+        // North cap at z=-3, south cap at z=+7.
+        // Gaps in west wall x=-16 at z=+2 (Storage) and z=+10 (Maintenance).
+        this._floor(-13, 2, 6, 10, this.materials.matTile);
+        this._ceiling(-13, 2, 6, 10);
+        // North cap
+        this._wall(-13, -3, 6, WALL_H, WALL_T);
+        // South cap
+        this._wall(-13, 7, 6, WALL_H, WALL_T);
+        // West wall x=-16 with gaps for Storage (z=+2) and Maint (z=+10)
+        this._wallWithGaps(-16, 2, 10, false, [
+            { center: 2,  width: 2.4 },
+            { center: 10, width: 2.4 },
         ]);
-        this._wall(-20, -7, WALL_T, WALL_H, 38); // west wall: solid
-        // North cap at z=-26
-        this._wall(-18, -26, 4, WALL_H, WALL_T);
-        // South dead-end cap at z=+12
-        this._wall(-18, 12, 4, WALL_H, WALL_T);
-        this._mainLight(-18, -14, 1.4, 10);
-        this._mainLight(-18, -1, 1.4, 12);
-        this._emergencyFixture(-18, 2.7, -14);
-        this._emergencyFixture(-18, 2.7, 4);
+        this._mainLight(-13, 2, 1.4, 8);
+        this._emergencyFixture(-13, 2.7, 2);
 
-        this._roomBox(-29, 2, 10, 9, {
+        // ── STORAGE ROOM (west, z=+2) ──
+        // Room: center (-27, +2), 10×9. East door → bridge → west side corridor west wall x=-16
+        this._roomBox(-27, 2, 10, 9, {
             name: 'Storage Room',
             doorways: [{ side: 'E', offset: 0, width: 2.4 }]
         });
-        this._addStorageProps(-29, 2);
-        this._emergencyFixture(-29, 2.7, 2);
-        this._mainLight(-29, 2, 1.8, 9);
-        // Bridge: Storage Room east door (x=-24) to side corridor west wall (x=-20)
-        this._floor(-22, 2, 4, 2.4, this.materials.matTile);
-        this._ceiling(-22, 2, 4, 2.4);
-        this._wall(-22, 0.8, 4, WALL_H, WALL_T);
-        this._wall(-22, 3.2, 4, WALL_H, WALL_T);
-        this._mainLight(-22, 2, 1.4, 7);
+        this._addStorageProps(-27, 2);
+        this._emergencyFixture(-27, 2.7, 2);
+        this._mainLight(-27, 2, 1.8, 9);
+        // Bridge: room east door (x=-22) to corridor west wall (x=-16), 6 units
+        this._floor(-19, 2, 6, 2.4, this.materials.matTile);
+        this._ceiling(-19, 2, 6, 2.4);
+        this._wall(-19, 0.8, 6, WALL_H, WALL_T);
+        this._wall(-19, 3.2, 6, WALL_H, WALL_T);
+        this._mainLight(-19, 2, 1.4, 7);
 
-        this._roomBox(-29, 10, 10, 7, {
+        // ── MAINTENANCE ROOM (west, z=+10) ──
+        // Room: center (-27, +10), 10×7. East door → bridge → west side corridor.
+        this._roomBox(-27, 10, 10, 7, {
             name: 'Maintenance Room',
             doorways: [{ side: 'E', offset: 0, width: 2.4 }]
         });
-        this._addMaintenanceProps(-29, 10);
-        this._emergencyFixture(-29, 2.7, 10);
-        this._mainLight(-29, 10, 1.8, 8);
-        // Bridge: Maintenance Room east door (x=-24) to side corridor west wall (x=-20)
-        this._floor(-22, 10, 4, 2.4, this.materials.matTile);
-        this._ceiling(-22, 10, 4, 2.4);
-        this._wall(-22, 8.8, 4, WALL_H, WALL_T);
-        this._wall(-22, 11.2, 4, WALL_H, WALL_T);
-        this._mainLight(-22, 10, 1.4, 7);
+        this._addMaintenanceProps(-27, 10);
+        this._emergencyFixture(-27, 2.7, 10);
+        this._mainLight(-27, 10, 1.8, 8);
+        // Bridge: room east door (x=-22) to corridor west wall (x=-16), 6 units
+        this._floor(-19, 10, 6, 2.4, this.materials.matTile);
+        this._ceiling(-19, 10, 6, 2.4);
+        this._wall(-19, 8.8, 6, WALL_H, WALL_T);
+        this._wall(-19, 11.2, 6, WALL_H, WALL_T);
+        this._mainLight(-19, 10, 1.4, 7);
 
-        // ── EAST SIDE COLUMN: Break Room (z=+2) + Admin Office (z=+10) ──
-        // Mirror of west side: corridor runs z=-26 to z=+12 (length=38, center=-7).
-        // West wall gaps: z=-22 (no room here, corridor just runs past), z=+2 (Break bridge), z=+10 (Admin bridge).
-        // The east corridor connects only via reception bridge on west wall, not at z=-22.
-        this._floor(18, -7, 4, 38, this.materials.matTile);
-        this._ceiling(18, -7, 4, 38);
-        this._wallWithGaps(16, -7, 38, false, [
-            { center: 2,  width: 4   },  // Break Room bridge
-            { center: 10, width: 2.4 },  // Admin bridge
+        // ── EAST SIDE CORRIDOR (x=+13 centre, z=-3 to +7, mirror of west) ──
+        this._floor(13, 2, 6, 10, this.materials.matTile);
+        this._ceiling(13, 2, 6, 10);
+        this._wall(13, -3, 6, WALL_H, WALL_T);
+        this._wall(13, 7, 6, WALL_H, WALL_T);
+        this._wallWithGaps(16, 2, 10, false, [
+            { center: 2,  width: 2.4 },
+            { center: 10, width: 2.4 },
         ]);
-        this._wall(20, -7, WALL_T, WALL_H, 38); // east wall: solid
-        // North cap at z=-26
-        this._wall(18, -26, 4, WALL_H, WALL_T);
-        // South dead-end cap at z=+12
-        this._wall(18, 12, 4, WALL_H, WALL_T);
-        this._mainLight(18, -1, 1.4, 12);
-        this._emergencyFixture(18, 2.7, 4);
+        this._mainLight(13, 2, 1.4, 8);
+        this._emergencyFixture(13, 2.7, 2);
 
-        this._roomBox(29, 2, 10, 9, {
+        // ── BREAK ROOM (east, z=+2) ──
+        this._roomBox(27, 2, 10, 9, {
             name: 'Break Room',
             doorways: [{ side: 'W', offset: 0, width: 2.4 }]
         });
-        this._addBreakRoomProps(29, 2);
-        this._emergencyFixture(29, 2.7, 2);
-        this._mainLight(29, 2, 1.8, 9);
-        // Bridge: Break Room west door (x=24) to side corridor east wall (x=20)
-        this._floor(22, 2, 4, 2.4, this.materials.matTile);
-        this._ceiling(22, 2, 4, 2.4);
-        this._wall(22, 0.8, 4, WALL_H, WALL_T);
-        this._wall(22, 3.2, 4, WALL_H, WALL_T);
-        this._mainLight(22, 2, 1.4, 7);
+        this._addBreakRoomProps(27, 2);
+        this._emergencyFixture(27, 2.7, 2);
+        this._mainLight(27, 2, 1.8, 9);
+        // Bridge: room west door (x=22) to east corridor east wall (x=16), 6 units
+        this._floor(19, 2, 6, 2.4, this.materials.matTile);
+        this._ceiling(19, 2, 6, 2.4);
+        this._wall(19, 0.8, 6, WALL_H, WALL_T);
+        this._wall(19, 3.2, 6, WALL_H, WALL_T);
+        this._mainLight(19, 2, 1.4, 7);
 
-        this._roomBox(29, 10, 10, 7, {
+        // ── ADMIN OFFICE (east, z=+10) ──
+        this._roomBox(27, 10, 10, 7, {
             name: 'Admin Office',
             doorways: [{ side: 'W', offset: 0, width: 2.4 }]
         });
-        this._addAdminProps(29, 10);
-        this._emergencyFixture(29, 2.7, 10);
-        this._mainLight(29, 10, 1.8, 8);
-        // Bridge: Admin Office west door (x=24) to side corridor east wall (x=20)
-        this._floor(22, 10, 4, 2.4, this.materials.matTile);
-        this._ceiling(22, 10, 4, 2.4);
-        this._wall(22, 8.8, 4, WALL_H, WALL_T);
-        this._wall(22, 11.2, 4, WALL_H, WALL_T);
-        this._mainLight(22, 10, 1.4, 7);
+        this._addAdminProps(27, 10);
+        this._emergencyFixture(27, 2.7, 10);
+        this._mainLight(27, 10, 1.8, 8);
+        // Bridge: room west door (x=22) to east corridor east wall (x=16), 6 units
+        this._floor(19, 10, 6, 2.4, this.materials.matTile);
+        this._ceiling(19, 10, 6, 2.4);
+        this._wall(19, 8.8, 6, WALL_H, WALL_T);
+        this._wall(19, 11.2, 6, WALL_H, WALL_T);
+        this._mainLight(19, 10, 1.4, 7);
 
-        // ── RECEPTION HUB (center crossroads — matches reference map) ──
-        // Wide room: x=-10 to +10, z=-5 to +9 (w=20, d=14, center x=0, z=2)
-        this._floor(0, 2, 20, 14, this.materials.matTile);
-        this._ceiling(0, 2, 20, 14);
-        // North wall (z=-5): gap matching spine (width 2.4)
-        this._wallWithGaps(0, -5, 20, true, [{ center: 0, width: 2.4 }]);
-        // South wall (z=9): gap matching spine (width 2.4)
-        this._wallWithGaps(0, 9, 20, true, [{ center: 0, width: 2.4 }]);
-        // West wall (x=-10): only short corner pillars at N/S ends, middle is fully open
-        this._wall(-10, -4.25, WALL_T, WALL_H, 1.5);  // North corner pillar
-        this._wall(-10, 8.25,  WALL_T, WALL_H, 1.5);  // South corner pillar
-        // East wall (x=+10): same — corner pillars only
-        this._wall(10, -4.25, WALL_T, WALL_H, 1.5);   // North corner pillar
-        this._wall(10, 8.25,  WALL_T, WALL_H, 1.5);   // South corner pillar
-
-        // Bridges: reception → side corridors
-        this._floor(-13, 2, 6, 4, this.materials.matTile);
-        this._ceiling(-13, 2, 6, 4);
-        this._wall(-13, 0, 6, WALL_H, WALL_T);
-        this._wall(-13, 4, 6, WALL_H, WALL_T);
-        this._mainLight(-13, 2, 1.4, 6);
-
-        this._floor(13, 2, 6, 4, this.materials.matTile);
-        this._ceiling(13, 2, 6, 4);
-        this._wall(13, 0, 6, WALL_H, WALL_T);
-        this._wall(13, 4, 6, WALL_H, WALL_T);
-        this._mainLight(13, 2, 1.4, 6);
-
-        this._addReceptionProps(0, 2);
-        this._mainLight(-5, 2, 2.0, 12);
-        this._mainLight(5, 2, 2.0, 12);
-        this._mainLight(0, 2, 2.4, 14);
-        this._ceilingFixture(-4, 2);
-        this._ceilingFixture(4, 2);
-        this._emergencyFixture(0, 2.7, -3);
-        this._emergencyFixture(0, 2.7, 7);
-
-        // ── RECORDS ROOM (west, lower row, z=+22) ──
-        this._roomBox(-11, 22, 10, 9, {
+        // ── RECORDS ROOM (west, z=+18) ──
+        this._roomBox(-11, 18, 10, 9, {
             name: 'Records Room',
             doorways: [{ side: 'E', offset: 0, width: 2.4 }]
         });
-        this._addRecordsProps(-11, 22);
-        this._emergencyFixture(-11, 2.7, 22);
-        this._mainLight(-11, 22, 1.8, 9);
-        // Bridge: Records Room door (x=-6) to spine west wall (x=-2)
-        this._floor(-4, 22, 4, 2.4, this.materials.matTile);
-        this._ceiling(-4, 22, 4, 2.4);
-        this._wall(-4, 20.8, 4, WALL_H, WALL_T);
-        this._wall(-4, 23.2, 4, WALL_H, WALL_T);
+        this._addRecordsProps(-11, 18);
+        this._emergencyFixture(-11, 2.7, 18);
+        this._mainLight(-11, 18, 1.8, 9);
+        // Bridge: room east door (x=-6) to spine west wall (x=-2)
+        this._floor(-4, 18, 4, 2.4, this.materials.matTile);
+        this._ceiling(-4, 18, 4, 2.4);
+        this._wall(-4, 16.8, 4, WALL_H, WALL_T);
+        this._wall(-4, 19.2, 4, WALL_H, WALL_T);
 
-        // ── MEETING ROOM (east, lower row, z=+22) ──
-        this._roomBox(11, 22, 10, 9, {
+        // ── MEETING ROOM (east, z=+18) ──
+        this._roomBox(11, 18, 10, 9, {
             name: 'Meeting Room',
             doorways: [{ side: 'W', offset: 0, width: 2.4 }]
         });
-        this._addInterrogationProps(11, 22);
-        this._emergencyFixture(11, 2.7, 22);
-        this._mainLight(11, 22, 1.8, 9);
-        // Bridge: Meeting Room door (x=6) to spine east wall (x=2)
-        this._floor(4, 22, 4, 2.4, this.materials.matTile);
-        this._ceiling(4, 22, 4, 2.4);
-        this._wall(4, 20.8, 4, WALL_H, WALL_T);
-        this._wall(4, 23.2, 4, WALL_H, WALL_T);
+        this._addInterrogationProps(11, 18);
+        this._emergencyFixture(11, 2.7, 18);
+        this._mainLight(11, 18, 1.8, 9);
+        // Bridge: room west door (x=6) to spine east wall (x=2)
+        this._floor(4, 18, 4, 2.4, this.materials.matTile);
+        this._ceiling(4, 18, 4, 2.4);
+        this._wall(4, 16.8, 4, WALL_H, WALL_T);
+        this._wall(4, 19.2, 4, WALL_H, WALL_T);
     }
 
     // ---------- CENTRAL RECEPTION is now built inline above (see _buildRoomsClean) ----------
     _buildCentralReception() {
-        // intentionally empty — Reception is now built as part of _buildRoomsClean()
-        // to keep the cross-shaped layout's center as a single cohesive build pass.
+        // intentionally empty — Reception is built as part of _buildRoomsClean()
     }
 
-    // ---------- EXIT AREA (north end of spine) ----------
+    // ---------- EXIT AREA (north end of spine, z=-30 cap) ----------
     _buildExitArea() {
-        // Exit Area sits beyond the spine's north cap, behind a locked gate.
-        // Spine north cap is at z=-31; Exit Area room starts right after it.
-        const cz = -38;
+        // Exit room center at z=-36, width=10, depth=8
+        // South wall of Exit room = -36 + 4 = -32
+        // Spine north cap gap is at z=-30
+        // Connector: z=-32 to z=-30 (2 units), x=-2 to +2 (width 4)
+        const cz = -36;
         this._roomBox(0, cz, 10, 8, {
             name: 'Exit Area',
             doorways: [{ side: 'S', offset: 0, width: 2.6 }]
@@ -595,20 +574,24 @@ export class World {
         this._mainLight(0, cz, 2.4, 10);
         this._ceilingFixture(0, cz);
 
-        // Short connector corridor between spine north cap (z=-31) and Exit Area south wall (z=-34)
-        this._floor(0, -32.5, 4, 3, this.materials.matTile);
-        this._ceiling(0, -32.5, 4, 3);
-        this._wall(-2, -32.5, WALL_T, WALL_H, 3);
-        this._wall(2, -32.5, WALL_T, WALL_H, 3);
-        this._mainLight(0, -32.5, 1.6, 6);
+        // 2-unit connector between spine north cap (z=-30) and exit room south wall (z=-32)
+        this._floor(0, -31, 4, 2, this.materials.matTile);
+        this._ceiling(0, -31, 4, 2);
+        this._wall(-2, -31, WALL_T, WALL_H, 2);
+        this._wall(2, -31, WALL_T, WALL_H, 2);
+        this._mainLight(0, -31, 1.6, 5);
 
-        // Win trigger zone — far end of Exit Area, beyond the gate
+        // Win trigger — inside exit room beyond the gate
         this.exitTriggerPos = new THREE.Vector3(0, 0, cz - 3);
     }
 
-    // ---------- MAIN ENTRANCE (south end of spine) ----------
+    // ---------- MAIN ENTRANCE (south end of spine, z=+30 cap) ----------
     _buildMainEntranceArea() {
-        const cz = 38;
+        // Entrance room center at z=+36, width=10, depth=8
+        // North wall of entrance room = +36 - 4 = +32
+        // Spine south cap gap is at z=+30
+        // Connector: z=+30 to z=+32 (2 units)
+        const cz = 36;
         this._roomBox(0, cz, 10, 8, {
             name: 'Main Entrance Hall',
             doorways: [{ side: 'N', offset: 0, width: 2.6 }]
@@ -617,12 +600,12 @@ export class World {
         this._emergencyFixture(0, 2.7, cz);
         this._mainLight(0, cz, 2.2, 10);
 
-        // Short connector corridor between spine south cap (z=29) and entrance hall north wall (z=34)
-        this._floor(0, 31.5, 4, 5, this.materials.matTile);
-        this._ceiling(0, 31.5, 4, 5);
-        this._wall(-2, 31.5, WALL_T, WALL_H, 5);
-        this._wall(2, 31.5, WALL_T, WALL_H, 5);
-        this._mainLight(0, 31.5, 1.6, 6);
+        // 2-unit connector between spine south cap (z=+30) and entrance room north wall (z=+32)
+        this._floor(0, 31, 4, 2, this.materials.matTile);
+        this._ceiling(0, 31, 4, 2);
+        this._wall(-2, 31, WALL_T, WALL_H, 2);
+        this._wall(2, 31, WALL_T, WALL_H, 2);
+        this._mainLight(0, 31, 1.6, 5);
     }
 
     _addBreakRoomProps(cx, cz) {
@@ -699,7 +682,7 @@ export class World {
         );
         mirror.position.set(cx, 1.5, cz - 4.37);
         this.scene.add(mirror);
-        this._sign(cx, 2.4, cz - 3.95, 'MEETING ROOM', '#c41e1e', 3.6, 0.7);
+        this._sign(cx, 2.4, cz - 3.95, 'INTERROGATION', '#c41e1e', 3.6, 0.7);
         this._note(cx + 0.6, 0.91, cz + 0.2, 'CASE FILE 07');
     }
 
