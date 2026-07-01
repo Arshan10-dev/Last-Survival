@@ -2,149 +2,214 @@ import * as THREE from 'three';
 import { buildConcreteSet, buildMetalSet, buildTileSet, buildDustParticleTexture, buildPaperTexture, buildSignTexture } from './textures.js';
 
 /*
-  Facility layout. z-negative=north, z-positive=south, x-negative=west.
-  Spine: x=0, w=3, z=-24..+24. All connections use width=3.
-  Security(-12,-16)  Lab(+12,-16)
-  Reception(0,+2) w=18 d=10
-  W-corr x=-12 z=0..12 → Storage(-24,+2) Maint(-24,+10)
-  E-corr x=+12 z=0..12 → Break(+24,+2)  Admin(+24,+10)
-  Records(-12,+16)  Meeting(+12,+16)
-  Exit(0,-30)  Entrance(0,+30)
-*/ 
+  ══════════════════════════════════════════════════════════════════
+  FACILITY LAYOUT  (z-negative = north, z-positive = south)
+  ══════════════════════════════════════════════════════════════════
 
-const WALL_H = 3.2;
-const WALL_T = 0.25;
+  MAP STRUCTURE (matching reference image):
+
+              EXIT AREA  (0, -30)
+                  │
+    Security Office ─── SPINE ─── Laboratory
+       (-12,-16)    (x=0,w=3)    (12,-16)
+                  │
+              RECEPTION  (0, 2)   ← largest room, 18×10
+            ╔═══╧═══╗
+  Storage ──╣       ╠── Break Room
+  (-24,2)   ║       ║   (24,2)
+  Maint. ───╣       ╠── Admin Office
+  (-24,10)  ╚═══╤═══╝   (24,10)
+                  │
+    Records ──── SPINE ──── Meeting
+    (-12,16)              (12,16)
+                  │
+              ENTRANCE  (0, 30)
+
+  CONSTANTS:
+    ROOM_W = 10, ROOM_D = 8  (standard rooms)
+    RECEPTION_W = 18, RECEPTION_D = 10
+    HALLWAY_W = 3  (spine & all corridors)
+    SIDE_CORRIDOR_W = 3
+    BRIDGE_LEN = 5.5  (room-to-corridor connector length)
+    WALL_H = 3.2, WALL_T = 0.25
+══════════════════════════════════════════════════════════════════
+*/
+
+// ── Layout Constants ──────────────────────────────────────────────────────────
+const WALL_H      = 3.2;
+const WALL_T      = 0.25;
+const HALLWAY_W   = 3;       // spine & all corridor widths
+const ROOM_W      = 10;      // standard room width
+const ROOM_D      = 8;       // standard room depth
+const ROOM_D_SM   = 7;       // slightly smaller rooms (Maintenance, Admin)
+const RECEPTION_W = 18;      // reception hub width
+const RECEPTION_D = 10;      // reception hub depth
+const BRIDGE_LEN  = 5.5;     // connector from room to corridor
+
+// Room center positions (cx, cz)
+const POS = {
+    SPINE_CX:       0,
+    // Exit / Entrance
+    EXIT_CZ:       -30,
+    ENTRANCE_CZ:    30,
+    // Upper row  (Security Office left, Laboratory right)
+    UPPER_CZ:      -16,
+    UPPER_LEFT_CX: -12,
+    UPPER_RIGHT_CX: 12,
+    // Reception center
+    RECEPTION_CX:   0,
+    RECEPTION_CZ:   2,
+    // Mid-west  (Storage upper, Maintenance lower)
+    WEST_CX:       -24,
+    STORAGE_CZ:     2,
+    MAINT_CZ:       10,
+    // Mid-east  (Break Room upper, Admin Office lower)
+    EAST_CX:        24,
+    BREAK_CZ:        2,
+    ADMIN_CZ:       10,
+    // Lower row  (Records left, Meeting right)
+    LOWER_CZ:       16,
+    LOWER_LEFT_CX: -12,
+    LOWER_RIGHT_CX: 12,
+    // Spine extents
+    SPINE_NORTH:   -24,
+    SPINE_SOUTH:    24,
+    // Side corridor extents along Z
+    SIDE_CORR_NORTH: 0,
+    SIDE_CORR_SOUTH: 12,
+    // Bridges
+    BRIDGE_GAP:    HALLWAY_W,  // door gap in corridor walls = HALLWAY_W
+};
 
 export class World {
     constructor(scene) {
         this.scene = scene;
-        this.collidables = []; // boxes used for collision
+        this.collidables   = []; // meshes used for collision detection
         this.interactables = []; // { mesh, type, data, prompt, onInteract }
-        this.lights = [];
-        this.mainPowerLights = []; // bright ceiling lights, OFF until generator restored
-        this.facilityPowered = false;
-        this.flickerLights = [];
-        this.rooms = {}; // name -> { center, bounds, label }
-        this.minimapData = null; // for UI minimap renderer
-        this._dust = null;
+        this.lights        = [];
+        this.mainPowerLights  = []; // ceiling lights OFF until generator restored
+        this.facilityPowered  = false;
+        this.flickerLights    = [];
+        this.rooms            = {}; // name → { center: Vector3, w, d }
+        this.minimapData      = null;
+        this._dust            = null;
+        this._gateBarMeshes   = null;
+        this.exitUnlocked     = false;
 
         this.materials = this._buildMaterials();
         this._buildAll();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // MATERIALS
+    // ═══════════════════════════════════════════════════════════════
     _buildMaterials() {
         const concrete = buildConcreteSet();
-        const metal = buildMetalSet();
-        const tile = buildTileSet();
+        const metal    = buildMetalSet();
+        const tile     = buildTileSet();
 
-        const matFloor = new THREE.MeshStandardMaterial({
-            ...concrete, roughness: 0.92, metalness: 0.04,
-            color: 0x6a6258
-        });
-        const matWall = new THREE.MeshStandardMaterial({
-            ...concrete, roughness: 0.88, metalness: 0.06,
-            color: 0x5a5249
-        });
-        const matCeiling = new THREE.MeshStandardMaterial({
-            color: 0x2a2622, roughness: 0.95, metalness: 0.03
-        });
-        const matMetal = new THREE.MeshStandardMaterial({
-            ...metal, roughness: 0.55, metalness: 0.85, color: 0x8a857c
-        });
-        const matTile = new THREE.MeshStandardMaterial({
-            ...tile, roughness: 0.45, metalness: 0.02, color: 0xc8c2b4
-        });
-        const matDoor = new THREE.MeshStandardMaterial({
-            color: 0x4a3a2a, roughness: 0.5, metalness: 0.4
-        });
-        const matLockedDoor = new THREE.MeshStandardMaterial({
-            color: 0x6e2a2a, roughness: 0.5, metalness: 0.6,
-            emissive: 0x3a0808, emissiveIntensity: 0.4
-        });
-        const matComputer = new THREE.MeshStandardMaterial({
-            color: 0x1a1a1a, roughness: 0.4, metalness: 0.7
-        });
-        const matScreen = new THREE.MeshStandardMaterial({
-            color: 0x0a1f1a, emissive: 0x12a073, emissiveIntensity: 1.4,
-            roughness: 0.2, metalness: 0.0
-        });
-        const matWater = new THREE.MeshStandardMaterial({
-            color: 0x0a0d10, roughness: 0.05, metalness: 0.85,
-            transparent: true, opacity: 0.85
-        });
-        const matEmergency = new THREE.MeshStandardMaterial({
-            color: 0xc41e1e, emissive: 0xc41e1e, emissiveIntensity: 1.8,
-            roughness: 0.4, metalness: 0.0
-        });
         return {
-            matFloor, matWall, matCeiling, matMetal, matTile, matDoor, matLockedDoor,
-            matComputer, matScreen, matWater, matEmergency, dust: buildDustParticleTexture()
+            matFloor:    new THREE.MeshStandardMaterial({ ...concrete, roughness: 0.92, metalness: 0.04, color: 0x6a6258 }),
+            matWall:     new THREE.MeshStandardMaterial({ ...concrete, roughness: 0.88, metalness: 0.06, color: 0x5a5249 }),
+            matCeiling:  new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.95, metalness: 0.03 }),
+            matMetal:    new THREE.MeshStandardMaterial({ ...metal, roughness: 0.55, metalness: 0.85, color: 0x8a857c }),
+            matTile:     new THREE.MeshStandardMaterial({ ...tile, roughness: 0.45, metalness: 0.02, color: 0xc8c2b4 }),
+            matDoor:     new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 0.5, metalness: 0.4 }),
+            matLockedDoor: new THREE.MeshStandardMaterial({ color: 0x6e2a2a, roughness: 0.5, metalness: 0.6, emissive: 0x3a0808, emissiveIntensity: 0.4 }),
+            matComputer: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.7 }),
+            matScreen:   new THREE.MeshStandardMaterial({ color: 0x0a1f1a, emissive: 0x12a073, emissiveIntensity: 1.4, roughness: 0.2, metalness: 0.0 }),
+            matWater:    new THREE.MeshStandardMaterial({ color: 0x0a0d10, roughness: 0.05, metalness: 0.85, transparent: true, opacity: 0.85 }),
+            matEmergency: new THREE.MeshStandardMaterial({ color: 0xc41e1e, emissive: 0xc41e1e, emissiveIntensity: 1.8, roughness: 0.4, metalness: 0.0 }),
+            dust: buildDustParticleTexture()
         };
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // BUILD PIPELINE
+    // ═══════════════════════════════════════════════════════════════
     _buildAll() {
-        this._buildSpine();
-        this._buildRooms();
-        this._buildExitArea();
-        this._buildMainEntranceArea();
-        this._buildAtmosphere();
+        this._buildSpine();          // vertical corridor from north to south
+        this._buildUpperRooms();     // Security Office + Laboratory
+        this._buildReception();      // central hub
+        this._buildWestWing();       // Storage + Maintenance + west side corridor
+        this._buildEastWing();       // Break Room + Admin Office + east side corridor
+        this._buildLowerRooms();     // Records Room + Meeting Room
+        this._buildExitArea();       // Exit at north end
+        this._buildEntranceArea();   // Entrance at south end
+        this._buildAtmosphere();     // ambient light + dust particles + horror spotlights
     }
 
-    // ---------- HELPERS ----------
-    _floor(x, z, w, d, mat = this.materials.matFloor) {
-        const g = new THREE.PlaneGeometry(w, d, 2, 2);
-        const m = new THREE.Mesh(g, mat);
+    // ═══════════════════════════════════════════════════════════════
+    // GEOMETRY HELPERS
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Horizontal floor plane */
+    _floor(x, z, w, d, mat) {
+        mat = mat || this.materials.matFloor;
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d, 2, 2), mat);
         m.rotation.x = -Math.PI / 2;
         m.position.set(x, 0, z);
         m.receiveShadow = true;
         this.scene.add(m);
         return m;
     }
+
+    /** Ceiling plane */
     _ceiling(x, z, w, d) {
-        const g = new THREE.PlaneGeometry(w, d);
-        const m = new THREE.Mesh(g, this.materials.matCeiling);
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), this.materials.matCeiling);
         m.rotation.x = Math.PI / 2;
         m.position.set(x, WALL_H, z);
         this.scene.add(m);
         return m;
     }
-    _wall(x, z, w, h, d, mat = this.materials.matWall, opts = {}) {
-        const g = new THREE.BoxGeometry(w, h, d);
-        const m = new THREE.Mesh(g, mat);
+
+    /** Solid wall box, added to collidables by default */
+    _wall(x, z, w, h, d, mat, opts) {
+        mat  = mat  || this.materials.matWall;
+        opts = opts || {};
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         m.position.set(x, h / 2, z);
-        m.castShadow = !!opts.castShadow;
+        m.castShadow  = !!opts.castShadow;
         m.receiveShadow = true;
         this.scene.add(m);
         if (opts.solid !== false) this.collidables.push(m);
         return m;
     }
-    _roomBox(cx, cz, w, d, opts = {}) {
-        // build floor, ceiling, and four walls. Doorways: array of {side:'N|S|E|W', offset:0, width:1.6}
+
+    /**
+     * Build a complete room: floor + ceiling + four walls with optional door gaps.
+     * doorways: [{ side:'N'|'S'|'E'|'W', offset:0, width:1.8 }]
+     * offset is relative to room center along that wall's axis.
+     */
+    _roomBox(cx, cz, w, d, opts) {
+        opts = opts || {};
         const { doorways = [], floorMat, name } = opts;
+
         this._floor(cx, cz, w, d, floorMat || this.materials.matFloor);
         this._ceiling(cx, cz, w, d);
 
         const halfW = w / 2, halfD = d / 2;
 
-        // For each wall, subtract doorways
+        // Each wall: side identifier, wall center, axis the wall runs along, total span
         const sides = [
-            { side: 'N', center: [cx, cz - halfD], axis: 'x', span: w }, // along x
-            { side: 'S', center: [cx, cz + halfD], axis: 'x', span: w },
-            { side: 'W', center: [cx - halfW, cz], axis: 'z', span: d }, // along z
-            { side: 'E', center: [cx + halfW, cz], axis: 'z', span: d },
+            { side: 'N', center: [cx,       cz - halfD], axis: 'x', span: w },
+            { side: 'S', center: [cx,       cz + halfD], axis: 'x', span: w },
+            { side: 'W', center: [cx - halfW, cz      ], axis: 'z', span: d },
+            { side: 'E', center: [cx + halfW, cz      ], axis: 'z', span: d },
         ];
+
         sides.forEach(s => {
-            const myDoors = doorways.filter(dw => dw.side === s.side)
-                .map(dw => ({ offset: dw.offset || 0, width: dw.width || 1.8 }))
+            const myDoors = doorways
+                .filter(dw => dw.side === s.side)
+                .map(dw => ({ offset: dw.offset || 0, width: dw.width || HALLWAY_W }))
                 .sort((a, b) => a.offset - b.offset);
-            // Build wall segments around door cuts. Coord along axis runs from -span/2 .. +span/2
+
             let cursor = -s.span / 2;
             myDoors.forEach(dw => {
                 const doorStart = dw.offset - dw.width / 2;
-                const doorEnd = dw.offset + dw.width / 2;
+                const doorEnd   = dw.offset + dw.width / 2;
                 if (doorStart > cursor) this._wallSegment(s, cursor, doorStart);
                 cursor = doorEnd;
-                // top lintel above door
                 this._lintel(s, doorStart, doorEnd);
             });
             if (cursor < s.span / 2) this._wallSegment(s, cursor, s.span / 2);
@@ -154,6 +219,7 @@ export class World {
             this.rooms[name] = { center: new THREE.Vector3(cx, 0, cz), w, d };
         }
     }
+
     _wallSegment(side, fromAxis, toAxis) {
         const len = toAxis - fromAxis;
         if (len < 0.05) return;
@@ -164,45 +230,126 @@ export class World {
             this._wall(side.center[0], side.center[1] + mid, WALL_T, WALL_H, len);
         }
     }
+
     _lintel(side, fromAxis, toAxis) {
-        const len = toAxis - fromAxis;
-        const mid = (fromAxis + toAxis) / 2;
+        const len     = toAxis - fromAxis;
+        const mid     = (fromAxis + toAxis) / 2;
         const lintelH = 0.6;
-        const yTop = WALL_H - lintelH;
+        const yTop    = WALL_H - lintelH;
         if (side.axis === 'x') {
-            const g = new THREE.BoxGeometry(len, lintelH, WALL_T);
-            const m = new THREE.Mesh(g, this.materials.matWall);
+            const m = new THREE.Mesh(new THREE.BoxGeometry(len, lintelH, WALL_T), this.materials.matWall);
             m.position.set(side.center[0] + mid, yTop + lintelH / 2, side.center[1]);
-            m.receiveShadow = true;
-            this.scene.add(m);
+            m.receiveShadow = true; this.scene.add(m);
         } else {
-            const g = new THREE.BoxGeometry(WALL_T, lintelH, len);
-            const m = new THREE.Mesh(g, this.materials.matWall);
+            const m = new THREE.Mesh(new THREE.BoxGeometry(WALL_T, lintelH, len), this.materials.matWall);
             m.position.set(side.center[0], yTop + lintelH / 2, side.center[1] + mid);
-            m.receiveShadow = true;
-            this.scene.add(m);
+            m.receiveShadow = true; this.scene.add(m);
         }
     }
 
-    _light(color, intensity, x, y, z, distance = 8, decay = 1.8, opts = {}) {
-        const L = new THREE.PointLight(color, intensity, distance, decay);
+    /**
+     * Build a wall (horizontal or vertical) with gap openings for doors/passages.
+     * @param {number} x - x coordinate (for vertical wall) or center x (for horizontal)
+     * @param {number} z - z coordinate (for horizontal wall) or center z (for vertical)
+     * @param {number} length - total length of this wall
+     * @param {boolean} isHorizontal - true = wall runs along X axis at given Z
+     * @param {Array} gaps - [{ center, width }] gap definitions
+     */
+    _wallWithGaps(x, z, length, isHorizontal, gaps) {
+        if (!gaps || gaps.length === 0) {
+            if (isHorizontal) this._wall(x, z, length, WALL_H, WALL_T);
+            else              this._wall(x, z, WALL_T, WALL_H, length);
+            return;
+        }
+
+        const sorted = [...gaps].sort((a, b) => a.center - b.center);
+        const half   = length / 2;
+        let cursor   = isHorizontal ? x - half : z - half;
+
+        sorted.forEach(({ center: gc, width: gw }) => {
+            const gStart = gc - gw / 2, gEnd = gc + gw / 2;
+
+            if (gStart > cursor) {
+                const segLen = gStart - cursor;
+                const mid    = (cursor + gStart) / 2;
+                if (isHorizontal) this._wall(mid, z, segLen, WALL_H, WALL_T);
+                else              this._wall(x, mid, WALL_T, WALL_H, segLen);
+            }
+            // Lintel above gap
+            if (isHorizontal) {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(gw, 0.6, WALL_T), this.materials.matWall);
+                m.position.set(gc, WALL_H - 0.3, z); m.receiveShadow = true; this.scene.add(m);
+            } else {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(WALL_T, 0.6, gw), this.materials.matWall);
+                m.position.set(x, WALL_H - 0.3, gc); m.receiveShadow = true; this.scene.add(m);
+            }
+            cursor = gEnd;
+        });
+
+        const endCoord = isHorizontal ? x + half : z + half;
+        if (endCoord > cursor) {
+            const segLen = endCoord - cursor;
+            const mid    = (cursor + endCoord) / 2;
+            if (isHorizontal) this._wall(mid, z, segLen, WALL_H, WALL_T);
+            else              this._wall(x, mid, WALL_T, WALL_H, segLen);
+        }
+    }
+
+    /**
+     * Build a bridge corridor connecting a room to the main spine/side corridor.
+     * Adds floor, ceiling, and side walls — leaves both ends open.
+     */
+    _bridge(cx, cz, w, len, isNS) {
+        // isNS = true → corridor runs north-south (along Z)
+        //        false → corridor runs east-west  (along X)
+        if (isNS) {
+            // corridor runs along Z; w is the east-west width
+            this._floor(cx, cz, w, len, this.materials.matTile);
+            this._ceiling(cx, cz, w, len);
+            this._wall(cx - w / 2, cz, WALL_T, WALL_H, len); // west side
+            this._wall(cx + w / 2, cz, WALL_T, WALL_H, len); // east side
+        } else {
+            // corridor runs along X; w is the north-south depth
+            this._floor(cx, cz, len, w, this.materials.matTile);
+            this._ceiling(cx, cz, len, w);
+            this._wall(cx, cz - w / 2, len, WALL_H, WALL_T); // north side
+            this._wall(cx, cz + w / 2, len, WALL_H, WALL_T); // south side
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIGHT HELPERS
+    // ═══════════════════════════════════════════════════════════════
+    _light(color, intensity, x, y, z, distance, decay, opts) {
+        distance = distance || 8;
+        decay    = decay    || 1.8;
+        opts     = opts     || {};
+        const L  = new THREE.PointLight(color, intensity, distance, decay);
         L.position.set(x, y, z);
         if (opts.shadow) {
             L.castShadow = true;
             L.shadow.mapSize.set(256, 256);
             L.shadow.bias = -0.002;
             L.shadow.camera.near = 0.2;
-            L.shadow.camera.far = distance;
+            L.shadow.camera.far  = distance;
         }
         this.scene.add(L);
         this.lights.push(L);
-        if (opts.flicker) this.flickerLights.push({ light: L, base: intensity, phase: Math.random() * 10, rate: 0.3 + Math.random() * 1.2, depth: opts.flickerDepth || 0.4 });
+        if (opts.flicker) {
+            this.flickerLights.push({
+                light: L, base: intensity,
+                phase: Math.random() * 10,
+                rate:  0.3 + Math.random() * 1.2,
+                depth: opts.flickerDepth || 0.4
+            });
+        }
         return L;
     }
 
-    // Bright white ceiling light — OFF (intensity 0) until generator restores power.
-    // Placed at room center, casts no shadow (cheap, just floods the room).
-    _mainLight(x, z, targetIntensity = 2.2, distance = 9) {
+    /** Ceiling light that starts OFF — powered on when generator is restored */
+    _mainLight(x, z, targetIntensity, distance) {
+        targetIntensity = targetIntensity || 2.2;
+        distance        = distance        || 9;
         const L = new THREE.PointLight(0xfff6e8, 0, distance, 1.6);
         L.position.set(x, 2.9, z);
         this.scene.add(L);
@@ -210,17 +357,17 @@ export class World {
         return L;
     }
 
-    // Called once when the generator is switched on — ramps all main lights up smoothly.
     setMainPower(on) {
-        this.facilityPowered = on;
-        this._powerRampStart = performance.now();
-        this._powerRampFrom = this.mainPowerLights.map(p => p.light.intensity);
-        this._powerRampTo   = on ? this.mainPowerLights.map(p => p.target) : this.mainPowerLights.map(() => 0);
-        this._powerRamping  = true;
+        this.facilityPowered    = on;
+        this._powerRampStart    = performance.now();
+        this._powerRampFrom     = this.mainPowerLights.map(p => p.light.intensity);
+        this._powerRampTo       = on
+            ? this.mainPowerLights.map(p => p.target)
+            : this.mainPowerLights.map(() => 0);
+        this._powerRamping      = true;
     }
 
-    // Visible ceiling fixture mesh (chandelier-style glow disc) — purely visual, paired with
-    // a _mainLight() point light placed at the same spot for actual illumination.
+    /** Visible ceiling fixture (paired with a _mainLight for actual illumination) */
     _ceilingFixture(x, z) {
         const housing = new THREE.Mesh(
             new THREE.CylinderGeometry(0.5, 0.5, 0.08, 24),
@@ -231,22 +378,24 @@ export class World {
 
         const glowDisc = new THREE.Mesh(
             new THREE.CylinderGeometry(0.42, 0.42, 0.03, 24),
-            new THREE.MeshStandardMaterial({
-                color: 0xfff6e0, emissive: 0xfff2c8, emissiveIntensity: 0,
-                roughness: 0.3
-            })
+            new THREE.MeshStandardMaterial({ color: 0xfff6e0, emissive: 0xfff2c8, emissiveIntensity: 0, roughness: 0.3 })
         );
         glowDisc.position.set(x, WALL_H - 0.1, z);
         this.scene.add(glowDisc);
-        // Track so it brightens in sync with the room's main power light
-        this.mainPowerLights.push({ light: { get intensity() { return glowDisc.material.emissiveIntensity; }, set intensity(v) { glowDisc.material.emissiveIntensity = v; } }, target: 1.6 });
+
+        this.mainPowerLights.push({
+            light: {
+                get intensity()  { return glowDisc.material.emissiveIntensity; },
+                set intensity(v) { glowDisc.material.emissiveIntensity = v; }
+            },
+            target: 1.6
+        });
         return { housing, glowDisc };
     }
+
     _emergencyFixture(x, y, z) {
-        // Red emergency light fixture (emissive cylinder + caged housing)
         const housing = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.2, 0.25),
-            this.materials.matMetal
+            new THREE.BoxGeometry(0.4, 0.2, 0.25), this.materials.matMetal
         );
         housing.position.set(x, y, z);
         this.scene.add(housing);
@@ -259,404 +408,371 @@ export class World {
         dome.rotation.x = Math.PI;
         this.scene.add(dome);
 
-        this._light(0xff2222, 1.6, x, y - 0.1, z, 8, 1.8, { flicker: Math.random() < 0.35, flickerDepth: 0.3 });
+        this._light(0xff2222, 1.6, x, y - 0.1, z, 8, 1.8, {
+            flicker: Math.random() < 0.35, flickerDepth: 0.3
+        });
     }
 
-    // ---------- CORRIDOR SPINE ----------
+    // ═══════════════════════════════════════════════════════════════
+    // SPINE — vertical corridor running north-south through the center
+    // x=0, width=HALLWAY_W=3, from z=SPINE_NORTH to z=SPINE_SOUTH
+    // ═══════════════════════════════════════════════════════════════
     _buildSpine() {
-        // Spine: x=0, width=3, z=-24 to z=+24 (length=48, center z=0)
-        this._floor(0, 0, 3, 48, this.materials.matTile);
-        this._ceiling(0, 0, 3, 48);
+        const length = POS.SPINE_SOUTH - POS.SPINE_NORTH; // 48
+        const centerZ = (POS.SPINE_NORTH + POS.SPINE_SOUTH) / 2; // 0
 
-        // West spine wall x=-1.5 — gaps at z=-16 (Security), z=+2 (Reception, w=10), z=+16 (Records)
-        this._wallWithGaps(-1.5, 0, 48, false, [
-            { center: -16, width: 3.0 },
-            { center:   2, width: 10  },
-            { center:  16, width: 3.0 },
+        this._floor(0, centerZ, HALLWAY_W, length, this.materials.matTile);
+        this._ceiling(0, centerZ, HALLWAY_W, length);
+
+        // West wall of spine: gaps at Security Office bridge (z=-16), Reception (z=+2, w=10), Records bridge (z=+16)
+        this._wallWithGaps(-HALLWAY_W / 2, centerZ, length, false, [
+            { center: POS.UPPER_CZ,       width: HALLWAY_W },
+            { center: POS.RECEPTION_CZ,   width: RECEPTION_D },  // wide gap = full Reception access
+            { center: POS.LOWER_CZ,       width: HALLWAY_W },
         ]);
-        // East spine wall x=+1.5 — mirrored
-        this._wallWithGaps(1.5, 0, 48, false, [
-            { center: -16, width: 3.0 },
-            { center:   2, width: 10  },
-            { center:  16, width: 3.0 },
+        // East wall of spine: same gaps mirrored
+        this._wallWithGaps(HALLWAY_W / 2, centerZ, length, false, [
+            { center: POS.UPPER_CZ,       width: HALLWAY_W },
+            { center: POS.RECEPTION_CZ,   width: RECEPTION_D },
+            { center: POS.LOWER_CZ,       width: HALLWAY_W },
         ]);
 
-        // North cap z=-24: gap w=3 for exit connector
-        this._wallWithGaps(0, -24, 3, true, [{ center: 0, width: 3 }]);
-        // South cap z=+24: gap w=3 for entrance connector
-        this._wallWithGaps(0, 24, 3, true, [{ center: 0, width: 3 }]);
+        // North cap at z=SPINE_NORTH: full gap (exit connector goes north)
+        this._wallWithGaps(0, POS.SPINE_NORTH, HALLWAY_W, true, [{ center: 0, width: HALLWAY_W }]);
+        // South cap at z=SPINE_SOUTH: full gap (entrance connector goes south)
+        this._wallWithGaps(0, POS.SPINE_SOUTH, HALLWAY_W, true, [{ center: 0, width: HALLWAY_W }]);
 
-        // Corridor lighting
-        for (let z = -20; z <= 20; z += 8) this._emergencyFixture(0, 2.7, z);
-        this._mainLight(0, -16, 1.6, 8);
-        this._mainLight(0,   2, 1.4, 8);
-        this._mainLight(0,  16, 1.6, 8);
+        // Corridor lighting — emergency fixtures every 8 units
+        for (let z = POS.SPINE_NORTH + 4; z <= POS.SPINE_SOUTH - 4; z += 8) {
+            this._emergencyFixture(0, 2.7, z);
+        }
+        this._mainLight(0, POS.UPPER_CZ,     1.6, 8);
+        this._mainLight(0, POS.RECEPTION_CZ, 1.4, 8);
+        this._mainLight(0, POS.LOWER_CZ,     1.6, 8);
+
         this._sign(0, 2.6, -6, 'FACILITY CORRIDOR', '#c41e1e', 3.5, 0.7);
     }
 
-    _wallWithGaps(x, z, length, isHorizontal, gapCenters, gapWidth = 2.0) {
-        // builds a wall segment with gaps. isHorizontal=true means along x-axis at given z
-        // gapCenters entries can be a plain number (uses default gapWidth) or
-        // an object { center, width } for a custom-width gap.
-        if (gapCenters.length === 0) {
-            if (isHorizontal) this._wall(x, z, length, WALL_H, WALL_T);
-            else this._wall(x, z, WALL_T, WALL_H, length);
-            return;
-        }
-        const normalized = gapCenters.map(g =>
-            typeof g === 'object' ? g : { center: g, width: gapWidth }
-        );
-        const sorted = [...normalized].sort((a, b) => a.center - b.center);
-        const half = length / 2;
-        let cursor = (isHorizontal ? x - half : z - half);
-        sorted.forEach(({ center: gc, width: gw }) => {
-            const gStart = gc - gw / 2;
-            const gEnd = gc + gw / 2;
-            if (gStart > cursor) {
-                const segLen = gStart - cursor;
-                const mid = (cursor + gStart) / 2;
-                if (isHorizontal) this._wall(mid, z, segLen, WALL_H, WALL_T);
-                else this._wall(x, mid, WALL_T, WALL_H, segLen);
-            }
-            // lintel
-            if (isHorizontal) {
-                const g = new THREE.BoxGeometry(gw, 0.6, WALL_T);
-                const m = new THREE.Mesh(g, this.materials.matWall);
-                m.position.set(gc, WALL_H - 0.3, z); m.receiveShadow = true;
-                this.scene.add(m);
-            } else {
-                const g = new THREE.BoxGeometry(WALL_T, 0.6, gw);
-                const m = new THREE.Mesh(g, this.materials.matWall);
-                m.position.set(x, WALL_H - 0.3, gc); m.receiveShadow = true;
-                this.scene.add(m);
-            }
-            cursor = gEnd;
+    // ═══════════════════════════════════════════════════════════════
+    // UPPER ROOMS  — Security Office (west) + Laboratory (east)
+    // Both at z = UPPER_CZ = -16.  Horizontal bridge to spine.
+    // ═══════════════════════════════════════════════════════════════
+    _buildUpperRooms() {
+        // ── Security Office ── west side, center (-12, -16)
+        this._roomBox(POS.UPPER_LEFT_CX, POS.UPPER_CZ, ROOM_W, ROOM_D, {
+            name: 'Security Office',
+            doorways: [{ side: 'E', offset: 0, width: HALLWAY_W }]
         });
-        const endCoord = (isHorizontal ? x + half : z + half);
-        if (endCoord > cursor) {
-            const segLen = endCoord - cursor;
-            const mid = (cursor + endCoord) / 2;
-            if (isHorizontal) this._wall(mid, z, segLen, WALL_H, WALL_T);
-            else this._wall(x, mid, WALL_T, WALL_H, segLen);
+        this._addSecurityProps(POS.UPPER_LEFT_CX, POS.UPPER_CZ);
+        this._emergencyFixture(POS.UPPER_LEFT_CX, 2.7, POS.UPPER_CZ);
+        this._mainLight(POS.UPPER_LEFT_CX, POS.UPPER_CZ, 1.8, 9);
+
+        // Bridge: room east wall x=-7 → spine west wall x=-1.5, center x=-4.25, len=5.5
+        const secBridgeCX = -4.25;
+        this._bridge(secBridgeCX, POS.UPPER_CZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(secBridgeCX, POS.UPPER_CZ, 1.4, 6);
+
+        // ── Laboratory ── east side, center (+12, -16)
+        this._roomBox(POS.UPPER_RIGHT_CX, POS.UPPER_CZ, ROOM_W, ROOM_D, {
+            name: 'Laboratory',
+            doorways: [{ side: 'W', offset: 0, width: HALLWAY_W }]
+        });
+        this._addLabProps(POS.UPPER_RIGHT_CX, POS.UPPER_CZ);
+        this._emergencyFixture(POS.UPPER_RIGHT_CX, 2.7, POS.UPPER_CZ);
+        this._mainLight(POS.UPPER_RIGHT_CX, POS.UPPER_CZ, 1.8, 9);
+
+        // Bridge: room west wall x=+7 → spine east wall x=+1.5, center x=+4.25, len=5.5
+        const labBridgeCX = 4.25;
+        this._bridge(labBridgeCX, POS.UPPER_CZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(labBridgeCX, POS.UPPER_CZ, 1.4, 6);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // RECEPTION HUB — largest room, center (0, 2), 18×10
+    // Open on west and east sides to allow side-corridor connections.
+    // ═══════════════════════════════════════════════════════════════
+    _buildReception() {
+        const cx = POS.RECEPTION_CX, cz = POS.RECEPTION_CZ;
+        const w  = RECEPTION_W,      d  = RECEPTION_D;
+
+        this._floor(cx, cz, w, d, this.materials.matTile);
+        this._ceiling(cx, cz, w, d);
+
+        // North wall (z = cz - d/2 = 2 - 5 = -3): gap for spine (w=HALLWAY_W centered at x=0)
+        this._wallWithGaps(0, cz - d / 2, w, true, [{ center: 0, width: HALLWAY_W }]);
+        // South wall (z = cz + d/2 = 7): gap for spine
+        this._wallWithGaps(0, cz + d / 2, w, true, [{ center: 0, width: HALLWAY_W }]);
+
+        // West wall (x = -9): corner pillars only — the center is open to the west corridor.
+        // Pillar at north corner and south corner, each 1.2 wide.
+        this._wall(-w / 2, cz - d / 2 + 0.6, WALL_T, WALL_H, 1.2); // NW pillar
+        this._wall(-w / 2, cz + d / 2 - 0.6, WALL_T, WALL_H, 1.2); // SW pillar
+
+        // East wall (x = +9): same
+        this._wall( w / 2, cz - d / 2 + 0.6, WALL_T, WALL_H, 1.2); // NE pillar
+        this._wall( w / 2, cz + d / 2 - 0.6, WALL_T, WALL_H, 1.2); // SE pillar
+
+        this._addReceptionProps(cx, cz);
+
+        // Lighting: three main lights + ceiling fixtures + emergency
+        this._mainLight(cx - 4, cz, 2.0, 10);
+        this._mainLight(cx,     cz, 2.4, 12);
+        this._mainLight(cx + 4, cz, 2.0, 10);
+        this._ceilingFixture(cx - 2, cz);
+        this._ceilingFixture(cx + 2, cz);
+        this._emergencyFixture(0, 2.7, cz - 2);
+        this._emergencyFixture(0, 2.7, cz + 3);
+
+        if (!this.rooms['Reception']) {
+            this.rooms['Reception'] = { center: new THREE.Vector3(cx, 0, cz), w, d };
         }
     }
 
-    // ---------- ROOMS ----------
-    _buildRooms() {
-        this._buildRoomsClean();
+    // ═══════════════════════════════════════════════════════════════
+    // WEST WING — side corridor + Storage Room + Maintenance Room
+    // Side corridor: x=-12, z=0..12 (center z=6)
+    // Bridges: east wall of Storage/Maint → corridor west wall at x=-13.5
+    // ═══════════════════════════════════════════════════════════════
+    _buildWestWing() {
+        const corrX     = -12;    // side corridor center X
+        const corrZMin  = POS.SIDE_CORR_NORTH; // z = 0
+        const corrZMax  = POS.SIDE_CORR_SOUTH; // z = 12
+        const corrLen   = corrZMax - corrZMin;  // 12
+        const corrCZ    = (corrZMin + corrZMax) / 2; // 6
+
+        // Side corridor floor + ceiling (3 wide, 12 long)
+        this._floor(corrX, corrCZ, HALLWAY_W, corrLen, this.materials.matTile);
+        this._ceiling(corrX, corrCZ, HALLWAY_W, corrLen);
+        // North cap (where it meets Reception corner)
+        this._wall(corrX, corrZMin, HALLWAY_W, WALL_H, WALL_T);
+        // South cap
+        this._wall(corrX, corrZMax, HALLWAY_W, WALL_H, WALL_T);
+        // East wall of corridor with gaps for Storage (z=+2) and Maintenance (z=+10)
+        this._wallWithGaps(corrX + HALLWAY_W / 2, corrCZ, corrLen, false, [
+            { center: POS.STORAGE_CZ, width: HALLWAY_W },
+            { center: POS.MAINT_CZ,   width: HALLWAY_W },
+        ]);
+        // West wall (solid)
+        this._wall(corrX - HALLWAY_W / 2, corrCZ, WALL_T, WALL_H, corrLen);
+
+        this._mainLight(corrX, corrCZ, 1.4, 8);
+        this._emergencyFixture(corrX, 2.7, corrCZ);
+
+        // Reception west edge x=-9 to corridor east wall x=-10.5: short bridge (1.5 wide, depth=4)
+        // This fills the gap between the open Reception west face and the corridor east wall
+        const recBridgeCX = -9.75;
+        this._floor(recBridgeCX, POS.RECEPTION_CZ, 1.5, RECEPTION_D, this.materials.matTile);
+        this._ceiling(recBridgeCX, POS.RECEPTION_CZ, 1.5, RECEPTION_D);
+        // Note: no side walls needed here — the Reception corner pillars and corridor wall cap it
+
+        // ── Storage Room ── center (-24, 2)
+        const storCX = POS.WEST_CX, storCZ = POS.STORAGE_CZ;
+        this._roomBox(storCX, storCZ, ROOM_W, ROOM_D, {
+            name: 'Storage Room',
+            doorways: [{ side: 'E', offset: 0, width: HALLWAY_W }]
+        });
+        this._addStorageProps(storCX, storCZ);
+        this._emergencyFixture(storCX, 2.7, storCZ);
+        this._mainLight(storCX, storCZ, 1.8, 9);
+
+        // Bridge: room east wall x=-19 → corridor east wall x=-10.5, center x=-14.75, len=8.5
+        // Actually room east wall x = storCX + ROOM_W/2 = -24 + 5 = -19
+        // corridor west wall x = corrX - HALLWAY_W/2 = -12 - 1.5 = -13.5
+        // bridge center = (-19 + -13.5)/2 = -16.25, length = 5.5
+        const storBridgeCX = -16.25;
+        this._bridge(storBridgeCX, storCZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(storBridgeCX, storCZ, 1.4, 6);
+
+        // ── Maintenance Room ── center (-24, 10)
+        const maintCX = POS.WEST_CX, maintCZ = POS.MAINT_CZ;
+        this._roomBox(maintCX, maintCZ, ROOM_W, ROOM_D_SM, {
+            name: 'Maintenance Room',
+            doorways: [{ side: 'E', offset: 0, width: HALLWAY_W }]
+        });
+        this._addMaintenanceProps(maintCX, maintCZ);
+        this._emergencyFixture(maintCX, 2.7, maintCZ);
+        this._mainLight(maintCX, maintCZ, 1.8, 8);
+
+        // Bridge (same span as Storage bridge)
+        const maintBridgeCX = -16.25;
+        this._bridge(maintBridgeCX, maintCZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(maintBridgeCX, maintCZ, 1.4, 6);
     }
 
-    _buildRoomsClean() {
-        // All connectors use width=3 everywhere — door, bridge, spine gap all match.
-        // This eliminates corner-blocking permanently.
+    // ═══════════════════════════════════════════════════════════════
+    // EAST WING — side corridor + Break Room + Admin Office
+    // Mirror of west wing on east side
+    // ═══════════════════════════════════════════════════════════════
+    _buildEastWing() {
+        const corrX    =  12;
+        const corrZMin = POS.SIDE_CORR_NORTH;
+        const corrZMax = POS.SIDE_CORR_SOUTH;
+        const corrLen  = corrZMax - corrZMin;
+        const corrCZ   = (corrZMin + corrZMax) / 2;
 
-        // ── SECURITY OFFICE  west, z=-16 ──
-        // Room 10×8, center (-12,-16). East door w=3, east wall x=-7.
-        // Bridge x=-7 → spine west wall x=-1.5 (5.5 units, center x=-4.25)
-        this._roomBox(-12, -16, 10, 8, { name:'Security Office', doorways:[{side:'E',offset:0,width:3}] });
-        this._addSecurityProps(-12, -16);
-        this._emergencyFixture(-12, 2.7, -16);
-        this._mainLight(-12, -16, 1.8, 9);
-        this._floor(-4.25, -16, 5.5, 3, this.materials.matTile);
-        this._ceiling(-4.25, -16, 5.5, 3);
-        this._wall(-4.25, -17.5, 5.5, WALL_H, WALL_T);
-        this._wall(-4.25, -14.5, 5.5, WALL_H, WALL_T);
+        this._floor(corrX, corrCZ, HALLWAY_W, corrLen, this.materials.matTile);
+        this._ceiling(corrX, corrCZ, HALLWAY_W, corrLen);
+        this._wall(corrX, corrZMin, HALLWAY_W, WALL_H, WALL_T);
+        this._wall(corrX, corrZMax, HALLWAY_W, WALL_H, WALL_T);
+        // West wall with gaps for Break Room (z=+2) and Admin Office (z=+10)
+        this._wallWithGaps(corrX - HALLWAY_W / 2, corrCZ, corrLen, false, [
+            { center: POS.BREAK_CZ, width: HALLWAY_W },
+            { center: POS.ADMIN_CZ, width: HALLWAY_W },
+        ]);
+        // East wall (solid)
+        this._wall(corrX + HALLWAY_W / 2, corrCZ, WALL_T, WALL_H, corrLen);
 
-        // ── LABORATORY  east, z=-16 ──
-        // Room 10×8, center (+12,-16). West door w=3, west wall x=+7.
-        // Bridge x=+1.5 → x=+7 (5.5 units, center x=+4.25)
-        this._roomBox(12, -16, 10, 8, { name:'Laboratory', doorways:[{side:'W',offset:0,width:3}] });
-        this._addLabProps(12, -16);
-        this._emergencyFixture(12, 2.7, -16);
-        this._mainLight(12, -16, 1.8, 9);
-        this._floor(4.25, -16, 5.5, 3, this.materials.matTile);
-        this._ceiling(4.25, -16, 5.5, 3);
-        this._wall(4.25, -17.5, 5.5, WALL_H, WALL_T);
-        this._wall(4.25, -14.5, 5.5, WALL_H, WALL_T);
+        this._mainLight(corrX, corrCZ, 1.4, 8);
+        this._emergencyFixture(corrX, 2.7, corrCZ);
 
-        // ── RECEPTION HUB  center, z=+2 ──
-        // Room 18×10, center (0,+2), spans x=-9..+9, z=-3..+7
-        // North wall z=-3: gap w=3 centered x=0 (matching spine gap)
-        // South wall z=+7: gap w=3 centered x=0
-        // West/East walls: open (corner pillars only) → side corridors
-        this._floor(0, 2, 18, 10, this.materials.matTile);
-        this._ceiling(0, 2, 18, 10);
-        this._wallWithGaps(0, -3, 18, true, [{center:0, width:3}]);
-        this._wallWithGaps(0,  7, 18, true, [{center:0, width:3}]);
-        // West wall x=-9: corner pillars, 1.2 units each — rest open to west corridor
-        this._wall(-9, -2.4, WALL_T, WALL_H, 1.2);
-        this._wall(-9,  6.4, WALL_T, WALL_H, 1.2);
-        // East wall x=+9: same
-        this._wall( 9, -2.4, WALL_T, WALL_H, 1.2);
-        this._wall( 9,  6.4, WALL_T, WALL_H, 1.2);
-        this._addReceptionProps(0, 2);
-        this._mainLight(-3, 2, 2.0, 10);
-        this._mainLight( 3, 2, 2.0, 10);
-        this._mainLight( 0, 2, 2.4, 12);
-        this._ceilingFixture(-2, 2);
-        this._ceilingFixture( 2, 2);
-        this._emergencyFixture(0, 2.7, -1);
-        this._emergencyFixture(0, 2.7,  5);
+        // Reception east edge x=+9 to corridor west wall x=+10.5: short bridge
+        const recBridgeCX = 9.75;
+        this._floor(recBridgeCX, POS.RECEPTION_CZ, 1.5, RECEPTION_D, this.materials.matTile);
+        this._ceiling(recBridgeCX, POS.RECEPTION_CZ, 1.5, RECEPTION_D);
 
-        // ── WEST SIDE CORRIDOR  x=-12, z=0..+12 ──
-        // Width=3, center x=-12, east wall x=-10.5, west wall x=-13.5
-        // (Reception west edge x=-9 → bridge gap x=-9..-10.5, center x=-9.75, len=1.5)
-        // East wall gaps: z=+2 (Storage, w=3), z=+10 (Maint, w=3)
-        this._floor(-12, 6, 3, 12, this.materials.matTile);
-        this._ceiling(-12, 6, 3, 12);
-        this._wall(-12, 0,  3, WALL_H, WALL_T);  // north cap
-        this._wall(-12, 12, 3, WALL_H, WALL_T);  // south cap
-        this._wallWithGaps(-10.5, 6, 12, false, [{center:2,width:3},{center:10,width:3}]);
-        this._wall(-13.5, 6, WALL_T, WALL_H, 12);
-        this._mainLight(-12, 6, 1.4, 8);
-        this._emergencyFixture(-12, 2.7, 6);
-        // Reception-to-west-corridor gap bridge: x=-9 to x=-10.5 (1.5 wide, z=0..+4)
-        this._floor(-9.75, 2, 1.5, 4, this.materials.matTile);
-        this._ceiling(-9.75, 2, 1.5, 4);
+        // ── Break Room ── center (+24, 2)
+        const breakCX = POS.EAST_CX, breakCZ = POS.BREAK_CZ;
+        this._roomBox(breakCX, breakCZ, ROOM_W, ROOM_D, {
+            name: 'Break Room',
+            doorways: [{ side: 'W', offset: 0, width: HALLWAY_W }]
+        });
+        this._addBreakRoomProps(breakCX, breakCZ);
+        this._emergencyFixture(breakCX, 2.7, breakCZ);
+        this._mainLight(breakCX, breakCZ, 1.8, 9);
 
-        // ── STORAGE ROOM  (-24,+2) ──
-        // Room 10×8, east wall x=-19. Bridge: x=-19..-13.5 (5.5 units, center x=-16.25)
-        this._roomBox(-24, 2, 10, 8, { name:'Storage Room', doorways:[{side:'E',offset:0,width:3}] });
-        this._addStorageProps(-24, 2);
-        this._emergencyFixture(-24, 2.7, 2);
-        this._mainLight(-24, 2, 1.8, 9);
-        this._floor(-16.25, 2, 5.5, 3, this.materials.matTile);
-        this._ceiling(-16.25, 2, 5.5, 3);
-        this._wall(-16.25, 0.5, 5.5, WALL_H, WALL_T);
-        this._wall(-16.25, 3.5, 5.5, WALL_H, WALL_T);
-        this._mainLight(-16.25, 2, 1.4, 6);
+        const breakBridgeCX = 16.25;
+        this._bridge(breakBridgeCX, breakCZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(breakBridgeCX, breakCZ, 1.4, 6);
 
-        // ── MAINTENANCE ROOM  (-24,+10) ──
-        // Room 10×7, east wall x=-19. Bridge: x=-19..-13.5 (5.5, center x=-16.25)
-        this._roomBox(-24, 10, 10, 7, { name:'Maintenance Room', doorways:[{side:'E',offset:0,width:3}] });
-        this._addMaintenanceProps(-24, 10);
-        this._emergencyFixture(-24, 2.7, 10);
-        this._mainLight(-24, 10, 1.8, 8);
-        this._floor(-16.25, 10, 5.5, 3, this.materials.matTile);
-        this._ceiling(-16.25, 10, 5.5, 3);
-        this._wall(-16.25, 8.5, 5.5, WALL_H, WALL_T);
-        this._wall(-16.25, 11.5, 5.5, WALL_H, WALL_T);
-        this._mainLight(-16.25, 10, 1.4, 6);
+        // ── Admin Office ── center (+24, 10)
+        const adminCX = POS.EAST_CX, adminCZ = POS.ADMIN_CZ;
+        this._roomBox(adminCX, adminCZ, ROOM_W, ROOM_D_SM, {
+            name: 'Admin Office',
+            doorways: [{ side: 'W', offset: 0, width: HALLWAY_W }]
+        });
+        this._addAdminProps(adminCX, adminCZ);
+        this._emergencyFixture(adminCX, 2.7, adminCZ);
+        this._mainLight(adminCX, adminCZ, 1.8, 8);
 
-        // ── EAST SIDE CORRIDOR  x=+12, z=0..+12 ── (mirror of west)
-        this._floor(12, 6, 3, 12, this.materials.matTile);
-        this._ceiling(12, 6, 3, 12);
-        this._wall(12, 0,  3, WALL_H, WALL_T);
-        this._wall(12, 12, 3, WALL_H, WALL_T);
-        this._wallWithGaps(10.5, 6, 12, false, [{center:2,width:3},{center:10,width:3}]);
-        this._wall(13.5, 6, WALL_T, WALL_H, 12);
-        this._mainLight(12, 6, 1.4, 8);
-        this._emergencyFixture(12, 2.7, 6);
-        // Reception-to-east-corridor gap bridge
-        this._floor(9.75, 2, 1.5, 4, this.materials.matTile);
-        this._ceiling(9.75, 2, 1.5, 4);
-
-        // ── BREAK ROOM  (+24,+2) ──
-        this._roomBox(24, 2, 10, 8, { name:'Break Room', doorways:[{side:'W',offset:0,width:3}] });
-        this._addBreakRoomProps(24, 2);
-        this._emergencyFixture(24, 2.7, 2);
-        this._mainLight(24, 2, 1.8, 9);
-        this._floor(16.25, 2, 5.5, 3, this.materials.matTile);
-        this._ceiling(16.25, 2, 5.5, 3);
-        this._wall(16.25, 0.5, 5.5, WALL_H, WALL_T);
-        this._wall(16.25, 3.5, 5.5, WALL_H, WALL_T);
-        this._mainLight(16.25, 2, 1.4, 6);
-
-        // ── ADMIN OFFICE  (+24,+10) ──
-        this._roomBox(24, 10, 10, 7, { name:'Admin Office', doorways:[{side:'W',offset:0,width:3}] });
-        this._addAdminProps(24, 10);
-        this._emergencyFixture(24, 2.7, 10);
-        this._mainLight(24, 10, 1.8, 8);
-        this._floor(16.25, 10, 5.5, 3, this.materials.matTile);
-        this._ceiling(16.25, 10, 5.5, 3);
-        this._wall(16.25, 8.5, 5.5, WALL_H, WALL_T);
-        this._wall(16.25, 11.5, 5.5, WALL_H, WALL_T);
-        this._mainLight(16.25, 10, 1.4, 6);
-
-        // ── RECORDS ROOM  west, z=+16 ──
-        this._roomBox(-12, 16, 10, 8, { name:'Records Room', doorways:[{side:'E',offset:0,width:3}] });
-        this._addRecordsProps(-12, 16);
-        this._emergencyFixture(-12, 2.7, 16);
-        this._mainLight(-12, 16, 1.8, 9);
-        this._floor(-4.25, 16, 5.5, 3, this.materials.matTile);
-        this._ceiling(-4.25, 16, 5.5, 3);
-        this._wall(-4.25, 14.5, 5.5, WALL_H, WALL_T);
-        this._wall(-4.25, 17.5, 5.5, WALL_H, WALL_T);
-
-        // ── MEETING ROOM  east, z=+16 ──
-        this._roomBox(12, 16, 10, 8, { name:'Meeting Room', doorways:[{side:'W',offset:0,width:3}] });
-        this._addInterrogationProps(12, 16);
-        this._emergencyFixture(12, 2.7, 16);
-        this._mainLight(12, 16, 1.8, 9);
-        this._floor(4.25, 16, 5.5, 3, this.materials.matTile);
-        this._ceiling(4.25, 16, 5.5, 3);
-        this._wall(4.25, 14.5, 5.5, WALL_H, WALL_T);
-        this._wall(4.25, 17.5, 5.5, WALL_H, WALL_T);
+        const adminBridgeCX = 16.25;
+        this._bridge(adminBridgeCX, adminCZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(adminBridgeCX, adminCZ, 1.4, 6);
     }
 
-    // ---------- CENTRAL RECEPTION is now built inline above (see _buildRoomsClean) ----------
-    _buildCentralReception() {
-        // intentionally empty — Reception is now built as part of _buildRoomsClean()
-        // to keep the cross-shaped layout's center as a single cohesive build pass.
+    // ═══════════════════════════════════════════════════════════════
+    // LOWER ROOMS — Records Room (west) + Meeting Room (east)
+    // Both at z = LOWER_CZ = +16. Horizontal bridge to spine.
+    // ═══════════════════════════════════════════════════════════════
+    _buildLowerRooms() {
+        // ── Records Room ── west side, center (-12, 16)
+        this._roomBox(POS.LOWER_LEFT_CX, POS.LOWER_CZ, ROOM_W, ROOM_D, {
+            name: 'Records Room',
+            doorways: [{ side: 'E', offset: 0, width: HALLWAY_W }]
+        });
+        this._addRecordsProps(POS.LOWER_LEFT_CX, POS.LOWER_CZ);
+        this._emergencyFixture(POS.LOWER_LEFT_CX, 2.7, POS.LOWER_CZ);
+        this._mainLight(POS.LOWER_LEFT_CX, POS.LOWER_CZ, 1.8, 9);
+
+        const recBridgeCX = -4.25;
+        this._bridge(recBridgeCX, POS.LOWER_CZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(recBridgeCX, POS.LOWER_CZ, 1.4, 6);
+
+        // ── Meeting Room ── east side, center (+12, 16)
+        this._roomBox(POS.LOWER_RIGHT_CX, POS.LOWER_CZ, ROOM_W, ROOM_D, {
+            name: 'Meeting Room',
+            doorways: [{ side: 'W', offset: 0, width: HALLWAY_W }]
+        });
+        this._addMeetingProps(POS.LOWER_RIGHT_CX, POS.LOWER_CZ);
+        this._emergencyFixture(POS.LOWER_RIGHT_CX, 2.7, POS.LOWER_CZ);
+        this._mainLight(POS.LOWER_RIGHT_CX, POS.LOWER_CZ, 1.8, 9);
+
+        const meetBridgeCX = 4.25;
+        this._bridge(meetBridgeCX, POS.LOWER_CZ, HALLWAY_W, BRIDGE_LEN, false);
+        this._mainLight(meetBridgeCX, POS.LOWER_CZ, 1.4, 6);
     }
 
-    // ---------- EXIT AREA ----------
+    // ═══════════════════════════════════════════════════════════════
+    // EXIT AREA — at the north end of the spine (z = -30)
+    // Connector: spine north cap z=-24 to room south wall z≈-26.5
+    // ═══════════════════════════════════════════════════════════════
     _buildExitArea() {
-        // Room 10×7, center (0,-30). South wall z=-30+3.5=-26.5.
-        // Spine north cap z=-24. Connector: z=-26.5..-24 (2.5 units, center z=-25.25)
-        const cz = -30;
-        this._roomBox(0, cz, 10, 7, { name:'Exit Area', doorways:[{side:'S',offset:0,width:3}] });
-        this._addExitGateProps(0, cz);
-        this._emergencyFixture(0, 2.7, cz);
-        this._mainLight(0, cz, 2.4, 10);
-        this._ceilingFixture(0, cz);
-        // Connector: 3 wide matching door and spine gap
-        this._floor(0, -25.25, 3, 2.5, this.materials.matTile);
-        this._ceiling(0, -25.25, 3, 2.5);
-        this._wall(-1.5, -25.25, WALL_T, WALL_H, 2.5);
-        this._wall( 1.5, -25.25, WALL_T, WALL_H, 2.5);
-        this._mainLight(0, -25.25, 1.6, 5);
-        this.exitTriggerPos = new THREE.Vector3(0, 0, cz - 2.5);
+        const cx = 0, cz = POS.EXIT_CZ; // (0, -30)
+
+        this._roomBox(cx, cz, ROOM_W, ROOM_D_SM, {
+            name: 'Exit Area',
+            doorways: [{ side: 'S', offset: 0, width: HALLWAY_W }]
+        });
+        this._addExitGateProps(cx, cz);
+        this._emergencyFixture(cx, 2.7, cz);
+        this._mainLight(cx, cz, 2.4, 10);
+        this._ceilingFixture(cx, cz);
+
+        // Connector: south wall of exit room z = cz + ROOM_D_SM/2 = -30 + 3.5 = -26.5
+        // North cap of spine z = SPINE_NORTH = -24
+        // Bridge center z = (-26.5 + -24) / 2 = -25.25, length = 2.5
+        const connCZ = -25.25, connLen = 2.5;
+        this._floor(0, connCZ, HALLWAY_W, connLen, this.materials.matTile);
+        this._ceiling(0, connCZ, HALLWAY_W, connLen);
+        this._wall(-HALLWAY_W / 2, connCZ, WALL_T, WALL_H, connLen);
+        this._wall( HALLWAY_W / 2, connCZ, WALL_T, WALL_H, connLen);
+        this._mainLight(0, connCZ, 1.6, 5);
+
+        // Exit trigger position — player must walk past the north wall of exit room
+        this.exitTriggerPos = new THREE.Vector3(cx, 0, cz - ROOM_D_SM / 2 - 1.5);
     }
 
-    // ---------- MAIN ENTRANCE ----------
-    _buildMainEntranceArea() {
-        // Room 10×7, center (0,+30). North wall z=+30-3.5=+26.5.
-        // Spine south cap z=+24. Connector: z=+24..+26.5 (2.5 units, center z=+25.25)
-        const cz = 30;
-        this._roomBox(0, cz, 10, 7, { name:'Main Entrance Hall', doorways:[{side:'N',offset:0,width:3}] });
-        this._addEntranceProps(0, cz);
-        this._emergencyFixture(0, 2.7, cz);
-        this._mainLight(0, cz, 2.2, 10);
-        // Connector: 3 wide
-        this._floor(0, 25.25, 3, 2.5, this.materials.matTile);
-        this._ceiling(0, 25.25, 3, 2.5);
-        this._wall(-1.5, 25.25, WALL_T, WALL_H, 2.5);
-        this._wall( 1.5, 25.25, WALL_T, WALL_H, 2.5);
-        this._mainLight(0, 25.25, 1.6, 5);
+    // ═══════════════════════════════════════════════════════════════
+    // ENTRANCE AREA — at the south end of the spine (z = +30)
+    // Player spawns here. Walk north to reach Reception.
+    // ═══════════════════════════════════════════════════════════════
+    _buildEntranceArea() {
+        const cx = 0, cz = POS.ENTRANCE_CZ; // (0, 30)
+
+        this._roomBox(cx, cz, ROOM_W, ROOM_D_SM, {
+            name: 'Main Entrance',
+            doorways: [{ side: 'N', offset: 0, width: HALLWAY_W }]
+        });
+        this._addEntranceProps(cx, cz);
+        this._emergencyFixture(cx, 2.7, cz);
+        this._mainLight(cx, cz, 2.2, 10);
+
+        // Connector: north wall z = cz - ROOM_D_SM/2 = 30 - 3.5 = 26.5
+        // South cap of spine z = SPINE_SOUTH = +24
+        // Bridge center z = (26.5 + 24) / 2 = 25.25, length = 2.5
+        const connCZ = 25.25, connLen = 2.5;
+        this._floor(0, connCZ, HALLWAY_W, connLen, this.materials.matTile);
+        this._ceiling(0, connCZ, HALLWAY_W, connLen);
+        this._wall(-HALLWAY_W / 2, connCZ, WALL_T, WALL_H, connLen);
+        this._wall( HALLWAY_W / 2, connCZ, WALL_T, WALL_H, connLen);
+        this._mainLight(0, connCZ, 1.6, 5);
     }
 
-    _addBreakRoomProps(cx, cz) {
-        // Break room: small kitchenette table + chairs + vending-style cabinet
-        const tableTop = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.8, 0.8, 0.07, 20),
-            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.55 })
-        );
-        tableTop.position.set(cx, 0.9, cz);
-        tableTop.castShadow = tableTop.receiveShadow = true;
-        this.scene.add(tableTop);
-        this.collidables.push(tableTop);
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.86, 10), this.materials.matMetal);
-        leg.position.set(cx, 0.45, cz);
-        this.scene.add(leg);
-        this._chair(cx - 1.3, cz);
-        this._chair(cx + 1.3, cz);
-        this._cabinet(cx, cz - 3);
-        this._crate(cx + 3, cz + 2.5);
-        this._note(cx - 1.3, 0.97, cz + 0.3, 'BREAK SCHEDULE');
-        this._sign(cx, 2.4, cz - 3.95, 'BREAK ROOM', '#f0a830', 3, 0.7);
-        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
-    }
-
-    _addAdminProps(cx, cz) {
-        // Admin office: desk + chair + filing cabinet + monitor
-        this._desk(cx, cz - 1, 2.8);
-        this._chair(cx, cz + 0.3);
-        this._monitor(cx, cz - 1.2, 0.9);
-        this._cabinet(cx + 3.5, cz + 1.5);
-        this._note(cx + 0.5, 1.06, cz - 1.4, 'ADMIN MEMO');
-        this._sign(cx, 2.4, cz - 3.45, 'ADMIN OFFICE', '#c41e1e', 3.4, 0.7);
-        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: true });
-    }
-
-    _addRecordsProps(cx, cz) {
-        // Records room: tall filing shelves + scattered cabinets + a desk with papers
-        for (let i = -1; i <= 1; i++) {
-            this._shelf(cx + i * 2.8, cz - 1.5);
-        }
-        this._cabinet(cx - 3.6, cz + 2);
-        this._cabinet(cx + 3.6, cz + 2);
-        this._desk(cx, cz + 2.2, 2.2);
-        this._note(cx, 1.06, cz + 1.7, 'CLASSIFIED FILES');
-        this._sign(cx, 2.4, cz - 3.45, 'RECORDS', '#4fbc94', 3, 0.7);
-        this._light(0xfff0c0, 0.45, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
-        this._waterPuddle(cx - 2, cz + 3, 1.6);
-    }
-
-    _addInterrogationProps(cx, cz) {
-        // Interrogation room: bare metal table + two chairs + single hanging light + mirror
-        const tableTop = new THREE.Mesh(
-            new THREE.BoxGeometry(2.0, 0.06, 1.1),
-            this.materials.matMetal
-        );
-        tableTop.position.set(cx, 0.85, cz);
-        tableTop.castShadow = tableTop.receiveShadow = true;
-        this.scene.add(tableTop);
-        this.collidables.push(tableTop);
-        const leg = (lx, lz) => {
-            const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.85, 0.07), this.materials.matMetal);
-            m.position.set(cx + lx, 0.42, cz + lz);
-            this.scene.add(m);
-        };
-        leg(0.9, 0.45); leg(-0.9, 0.45); leg(0.9, -0.45); leg(-0.9, -0.45);
-        this._chair(cx, cz - 1.4);
-        this._chair(cx, cz + 1.4);
-        // single harsh hanging light over the table
-        this._light(0xfff6e0, 1.0, cx, 2.4, cz, 6, 1.4, { flicker: Math.random() < 0.3, flickerDepth: 0.5 });
-        // one-way mirror panel on the back wall
-        const mirror = new THREE.Mesh(
-            new THREE.PlaneGeometry(1.6, 1.0),
-            new THREE.MeshStandardMaterial({ color: 0x101418, metalness: 0.8, roughness: 0.2 })
-        );
-        mirror.position.set(cx, 1.5, cz - 4.37);
-        this.scene.add(mirror);
-        this._sign(cx, 2.4, cz - 3.95, 'MEETING ROOM',  '#c41e1e', 3.6, 0.7);
-        this._note(cx + 0.6, 0.91, cz + 0.2, 'CASE FILE 07');
-    }
-
-
-    // ---------- PROPS PER ROOM ----------
-    _addEntranceProps(cx, cz) {
-        // Reception desk + welcome sign + double doors
-        this._desk(cx + 2, cz, 2.4);
-        this._sign(cx, 2.4, cz - 5.85, 'MAIN ENTRANCE', '#c41e1e', 4, 1);
-        // double \"exterior\" doors (sealed - cannot be exited that way)
-        const doorL = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.4, 0.12), this.materials.matMetal);
-        doorL.position.set(cx - 0.85, 1.2, cz + 5.85);
-        doorL.castShadow = true; this.scene.add(doorL);
-        const doorR = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.4, 0.12), this.materials.matMetal);
-        doorR.position.set(cx + 0.85, 1.2, cz + 5.85);
-        doorR.castShadow = true; this.scene.add(doorR);
-        this._sign(cx, 1.4, cz + 5.78, 'SEALED', '#c41e1e', 1.8, 0.5);
-        // ceiling lamp (off)
-        this._light(0xfff0c0, 0.6, cx, 2.8, cz, 8, 1.6, { flicker: true, flickerDepth: 0.5 });
-        this._crate(cx - 3, cz + 3);
-        this._crate(cx - 3.6, cz - 4);
-        this._pipes(cx + 4, cz - 1);
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // ROOM PROPS
+    // ═══════════════════════════════════════════════════════════════
 
     _addReceptionProps(cx, cz) {
-        // Furniture on south half — not visible through the narrow north doorway
         const deskZ = cz + 2.5;
         this._desk(cx, deskZ, 3);
         this._chair(cx - 1, deskZ + 1.4);
         this._chair(cx + 1, deskZ + 1.4);
-        this._crate(cx - 2.8, deskZ + 1.5);
+        this._crate(cx - 3, deskZ + 1.5);
         this._waterPuddle(cx + 2, deskZ + 1.2, 1.4);
         this._light(0xfff0c0, 0.4, cx, 2.8, deskZ, 6, 1.7, { flicker: Math.random() < 0.5 });
-        // Sign on SOUTH wall (inside the room, not at the north entrance)
-        this._sign(cx, 2.2, cz + 4.88, 'RECEPTION', '#f0a830', 3, 0.8);
+        this._sign(cx, 2.2, cz + RECEPTION_D / 2 - 0.15, 'RECEPTION', '#f0a830', 3, 0.8);
     }
 
     _addSecurityProps(cx, cz) {
-        // Security desk with monitors + keycard on desk
         this._desk(cx, cz, 3.2);
-        const mon1 = this._monitor(cx - 1, cz - 0.2, 1.6);
-        const mon2 = this._monitor(cx + 1, cz - 0.2, 1.6);
+        this._monitor(cx - 1, cz - 0.2, 1.6);
+        this._monitor(cx + 1, cz - 0.2, 1.6);
         this._chair(cx, cz + 1.2);
-        // KEYCARD (interactable)
+
+        // KEYCARD — interactable pickup
         const cardGeo = new THREE.BoxGeometry(0.18, 0.01, 0.28);
-        const cardMat = new THREE.MeshStandardMaterial({ color: 0xc41e1e, emissive: 0xc41e1e, emissiveIntensity: 0.6, roughness: 0.4 });
+        const cardMat = new THREE.MeshStandardMaterial({
+            color: 0xc41e1e, emissive: 0xc41e1e, emissiveIntensity: 0.6, roughness: 0.4
+        });
         const card = new THREE.Mesh(cardGeo, cardMat);
         card.position.set(cx + 0.4, 1.06, cz - 0.05);
         card.userData.spin = true;
@@ -667,48 +783,61 @@ export class World {
             data: { id: 'security_keycard' },
             bobBase: 1.06
         });
-        this._sign(cx, 2.4, cz - 3.45, 'SECURITY', '#c41e1e', 3, 0.7);
+
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'SECURITY OFFICE', '#c41e1e', 3.2, 0.7);
         this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: true });
-        this._light(0x33aaff, 0.4, cx, 1.4, cz - 0.2, 3.5, 2.4); // monitor glow
+        this._light(0x33aaff, 0.4, cx, 1.4, cz - 0.2, 3.5, 2.4);
         this._crate(cx + 3, cz + 2);
         this._pipes(cx - 4, cz + 1);
     }
 
-    _addMedicalProps(cx, cz) {
-        // Hospital beds, IV stands, broken glass cabinet
-        for (let i = -1; i <= 1; i++) {
-            this._bed(cx + i * 2.8, cz - 1.5);
-        }
-        this._cabinet(cx + 5, cz + 1);
-        this._cabinet(cx - 5, cz + 1);
-        this._waterPuddle(cx, cz + 2, 2.4);
-        this._note(cx + 5, 1.06, cz + 1.6, 'MEDICAL LOG');
-        this._sign(cx, 2.4, cz - 3.45, 'MEDICAL', '#4fbc94', 3, 0.7);
-        this._light(0xa8c8ff, 0.55, cx - 2, 2.8, cz, 6, 1.8, { flicker: true, flickerDepth: 0.6 });
-        this._light(0xa8c8ff, 0.35, cx + 2, 2.8, cz, 6, 1.8);
-        this._pipes(cx, cz - 3.2);
+    _addLabProps(cx, cz) {
+        this._labTable(cx - 3, cz);
+        this._labTable(cx,     cz);
+        this._labTable(cx + 3, cz);
+        this._cylinder(cx - 3, cz - 0.4);
+        this._cylinder(cx + 3, cz - 0.4);
+        this._note(cx, 1.06, cz + 0.6, 'EXPERIMENT 07');
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'LABORATORY', '#4fbc94', 3.2, 0.7);
+        this._light(0xa8c8ff, 0.6, cx - 3, 2.8, cz, 6, 1.8, { flicker: true });
+        this._light(0xa8c8ff, 0.6, cx,     2.8, cz, 6, 1.8);
+        this._light(0xa8c8ff, 0.6, cx + 3, 2.8, cz, 6, 1.8, { flicker: true, flickerDepth: 0.5 });
+        this._waterPuddle(cx - 2, cz + 2, 1.6);
+    }
+
+    _addStorageProps(cx, cz) {
+        for (let i = -1; i <= 1; i++) this._shelf(cx + i * 2.6, cz - 1.5);
+        this._crate(cx - 3.5, cz + 1.5);
+        this._crate(cx - 2.8, cz + 2);
+        this._crate(cx + 3,   cz + 1.5);
+        this._crate(cx + 3.5, cz + 2.2);
+        this._note(cx, 1.0, cz + 2, 'INVENTORY LOG');
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'STORAGE ROOM', '#f0a830', 3.2, 0.7);
+        this._light(0xfff0c0, 0.45, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
     }
 
     _addMaintenanceProps(cx, cz) {
-        this._pipes(cx - 5, cz - 2);
-        this._pipes(cx + 5, cz - 2);
-        this._crate(cx - 4, cz + 1);
-        this._crate(cx - 3.2, cz + 1.5);
+        this._pipes(cx - 4, cz - 2);
+        this._pipes(cx + 4, cz - 2);
+        this._crate(cx - 3.5, cz + 1);
+        this._crate(cx - 2.8, cz + 1.5);
         this._toolbox(cx + 3, cz - 1);
-        this._sign(cx, 2.4, cz - 3.45, 'MAINTENANCE', '#f0a830', 3.4, 0.7);
+        this._sign(cx, 2.4, cz - ROOM_D_SM / 2 + 0.15, 'MAINTENANCE', '#f0a830', 3.4, 0.7);
         this._light(0xffaa44, 0.4, cx - 3, 2.8, cz, 6, 1.8, { flicker: true });
         this._waterPuddle(cx - 1, cz + 2, 1.6);
 
-        // ── Generator (objective: Restore Generator Power) ──
+        // Generator — Objective: Restore Generator Power
         const gen = new THREE.Group();
         gen.position.set(cx + 2.5, 0, cz + 1);
         const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.9, 1.5), this.materials.matMetal);
-        body.position.set(0, 0.95, 0); body.castShadow = true; body.receiveShadow = true;
+        body.position.set(0, 0.95, 0); body.castShadow = body.receiveShadow = true;
         gen.add(body);
         const core = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.9, 16), this.materials.matMetal);
         core.position.set(0, 1.0, 0.85); core.rotation.z = Math.PI / 2; core.castShadow = true;
         gen.add(core);
-        const panelMat = new THREE.MeshStandardMaterial({ color: 0x2a0808, emissive: 0x2a0808, emissiveIntensity: 0.4, roughness: 0.4 });
+        const panelMat = new THREE.MeshStandardMaterial({
+            color: 0x2a0808, emissive: 0x2a0808, emissiveIntensity: 0.4, roughness: 0.4
+        });
         const panel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.07), panelMat);
         panel.position.set(0.9, 1.2, 0.78);
         gen.add(panel);
@@ -717,7 +846,10 @@ export class World {
 
         const switchMesh = new THREE.Mesh(
             new THREE.BoxGeometry(0.28, 0.45, 0.16),
-            new THREE.MeshStandardMaterial({ color: 0x6e2a2a, emissive: 0x3a0808, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.5 })
+            new THREE.MeshStandardMaterial({
+                color: 0x6e2a2a, emissive: 0x3a0808, emissiveIntensity: 0.6,
+                roughness: 0.4, metalness: 0.5
+            })
         );
         switchMesh.position.set(cx + 1.4, 1.1, cz + 1.78);
         this.scene.add(switchMesh);
@@ -729,117 +861,184 @@ export class World {
         });
     }
 
-    _addServerProps(cx, cz) {
-        // Server racks
-        for (let i = -2; i <= 2; i++) {
-            this._serverRack(cx + i * 1.5, cz - 1.5);
-        }
-        this._sign(cx, 2.4, cz - 4.45, 'SERVER ROOM', '#4fbc94', 3, 0.7);
-        // Cold blue light
-        this._light(0x66aaff, 0.7, cx, 2.8, cz, 8, 1.7, { flicker: false });
-        this._light(0x66aaff, 0.35, cx - 3, 1.6, cz - 1.5, 4, 2);
-        this._light(0x66aaff, 0.35, cx + 3, 1.6, cz - 1.5, 4, 2);
-        this._waterPuddle(cx + 2, cz + 2, 2);
+    _addBreakRoomProps(cx, cz) {
+        // Round table in center + chairs + vending cabinet
+        const tableTop = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.8, 0.8, 0.07, 20),
+            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.55 })
+        );
+        tableTop.position.set(cx, 0.9, cz);
+        tableTop.castShadow = tableTop.receiveShadow = true;
+        this.scene.add(tableTop);
+        this.collidables.push(tableTop);
+
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.86, 10), this.materials.matMetal);
+        leg.position.set(cx, 0.45, cz); this.scene.add(leg);
+
+        this._chair(cx - 1.2, cz);
+        this._chair(cx + 1.2, cz);
+        this._cabinet(cx,     cz - 3);
+        this._crate(cx + 3,   cz + 2);
+        this._note(cx - 1.2, 0.97, cz + 0.3, 'BREAK SCHEDULE');
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'BREAK ROOM', '#f0a830', 3, 0.7);
+        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
     }
 
-    _addStorageProps(cx, cz) {
-        // Tall shelving + crates
-        for (let i = -1; i <= 1; i++) {
-            this._shelf(cx + i * 2.8, cz - 1.5);
-        }
-        this._crate(cx - 3.6, cz + 1.5);
-        this._crate(cx - 2.8, cz + 2);
-        this._crate(cx + 3, cz + 1.5);
-        this._crate(cx + 3.6, cz + 2.2);
-        this._note(cx, 1.0, cz + 2, 'INVENTORY LOG');
-        this._sign(cx, 2.4, cz - 3.45, 'STORAGE', '#f0a830', 3, 0.7);
+    _addAdminProps(cx, cz) {
+        this._desk(cx, cz - 1, 2.8);
+        this._chair(cx, cz + 0.3);
+        this._monitor(cx, cz - 1.2, 0.9);
+        this._cabinet(cx + 3.5, cz + 1.5);
+        this._note(cx + 0.5, 1.06, cz - 1.4, 'ADMIN MEMO');
+        this._sign(cx, 2.4, cz - ROOM_D_SM / 2 + 0.15, 'ADMIN OFFICE', '#c41e1e', 3.4, 0.7);
+        this._light(0xfff0c0, 0.5, cx, 2.8, cz, 7, 1.7, { flicker: true });
+    }
+
+    _addRecordsProps(cx, cz) {
+        for (let i = -1; i <= 1; i++) this._shelf(cx + i * 2.6, cz - 1.5);
+        this._cabinet(cx - 3.5, cz + 2);
+        this._cabinet(cx + 3.5, cz + 2);
+        this._desk(cx, cz + 2.2, 2.2);
+        this._note(cx, 1.06, cz + 1.7, 'CLASSIFIED FILES');
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'RECORDS ROOM', '#4fbc94', 3.2, 0.7);
         this._light(0xfff0c0, 0.45, cx, 2.8, cz, 7, 1.7, { flicker: Math.random() < 0.4 });
+        this._waterPuddle(cx - 2, cz + 3, 1.6);
     }
 
-    _addLabProps(cx, cz) {
-        // Lab tables + glass cylinders + suspended equipment
-        this._labTable(cx - 4, cz);
-        this._labTable(cx, cz);
-        this._labTable(cx + 4, cz);
-        this._cylinder(cx - 4, cz - 0.4);
-        this._cylinder(cx + 4, cz - 0.4);
-        this._note(cx, 1.06, cz + 0.6, 'EXPERIMENT 07');
-        this._sign(cx, 2.4, cz - 3.95, 'LABORATORY', '#4fbc94', 3.2, 0.7);
-        this._light(0xa8c8ff, 0.6, cx - 4, 2.8, cz, 6, 1.8, { flicker: true });
-        this._light(0xa8c8ff, 0.6, cx, 2.8, cz, 6, 1.8);
-        this._light(0xa8c8ff, 0.6, cx + 4, 2.8, cz, 6, 1.8, { flicker: true, flickerDepth: 0.5 });
-        this._waterPuddle(cx - 2, cz + 2, 1.6);
+    _addMeetingProps(cx, cz) {
+        // Long conference table + chairs around it + wall panel
+        const tableTop = new THREE.Mesh(
+            new THREE.BoxGeometry(3.2, 0.06, 1.4), this.materials.matMetal
+        );
+        tableTop.position.set(cx, 0.85, cz);
+        tableTop.castShadow = tableTop.receiveShadow = true;
+        this.scene.add(tableTop);
+        this.collidables.push(tableTop);
+
+        const leg = (lx, lz) => {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.85, 0.07), this.materials.matMetal);
+            m.position.set(cx + lx, 0.42, cz + lz); this.scene.add(m);
+        };
+        leg( 1.5,  0.6); leg(-1.5,  0.6);
+        leg( 1.5, -0.6); leg(-1.5, -0.6);
+
+        this._chair(cx - 1.2, cz - 1.4);
+        this._chair(cx,       cz - 1.4);
+        this._chair(cx + 1.2, cz - 1.4);
+        this._chair(cx - 1.2, cz + 1.4);
+        this._chair(cx,       cz + 1.4);
+        this._chair(cx + 1.2, cz + 1.4);
+
+        // Presentation panel on back wall
+        const panel = new THREE.Mesh(
+            new THREE.PlaneGeometry(2.4, 1.4),
+            new THREE.MeshStandardMaterial({ color: 0x0a1010, emissive: 0x0a2020, emissiveIntensity: 0.3, roughness: 0.2 })
+        );
+        panel.position.set(cx, 1.6, cz - ROOM_D / 2 + 0.05);
+        this.scene.add(panel);
+
+        this._note(cx + 0.8, 0.91, cz + 0.2, 'CASE FILE 07');
+        this._sign(cx, 2.4, cz - ROOM_D / 2 + 0.15, 'MEETING ROOM', '#c41e1e', 3.2, 0.7);
+        this._light(0xfff6e0, 1.0, cx, 2.4, cz, 6, 1.4, { flicker: Math.random() < 0.3, flickerDepth: 0.5 });
+    }
+
+    _addEntranceProps(cx, cz) {
+        this._desk(cx + 2, cz, 2.4);
+        this._sign(cx, 2.4, cz - ROOM_D_SM / 2 + 0.15, 'MAIN ENTRANCE', '#c41e1e', 4, 1);
+
+        // Sealed exterior doors (south wall)
+        const doorL = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.4, 0.12), this.materials.matMetal);
+        doorL.position.set(cx - 0.85, 1.2, cz + ROOM_D_SM / 2 - 0.12);
+        doorL.castShadow = true; this.scene.add(doorL);
+        const doorR = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.4, 0.12), this.materials.matMetal);
+        doorR.position.set(cx + 0.85, 1.2, cz + ROOM_D_SM / 2 - 0.12);
+        doorR.castShadow = true; this.scene.add(doorR);
+        this._sign(cx, 1.4, cz + ROOM_D_SM / 2 - 0.05, 'SEALED', '#c41e1e', 1.8, 0.5);
+
+        this._light(0xfff0c0, 0.6, cx, 2.8, cz, 8, 1.6, { flicker: true, flickerDepth: 0.5 });
+        this._crate(cx - 3, cz + 2);
+        this._crate(cx - 3.5, cz - 2);
+        this._pipes(cx + 4, cz - 1);
     }
 
     _addExitGateProps(cx, cz) {
-        // Gate sits exactly in the room's east wall gap (x = cx+5 = 33)
-        const gateX = cx + 5;
+        // Gate sits inside the north wall of the exit room (x = cx - ROOM_W/2 = -5, but gate is centered)
+        // Place gate at the north wall interior face
+        const gateZ = cz - ROOM_D_SM / 2 + 0.15; // just inside the north wall
+
         const gateGroup = new THREE.Group();
-        const gateBarMeshes = []; // explicit list — guarantees removal regardless of parent quirks
+        const gateBarMeshes = [];
 
         for (let i = -3; i <= 3; i++) {
             const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 0.12), this.materials.matMetal);
-            bar.position.set(0, 1.4, i * 0.4);
+            bar.position.set(i * 0.36, 1.4, 0);
             bar.castShadow = true;
             gateGroup.add(bar);
             gateBarMeshes.push(bar);
         }
-        const top = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3), this.materials.matMetal);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, HALLWAY_W), this.materials.matMetal);
         top.position.set(0, 2.8, 0);
         gateGroup.add(top);
         gateBarMeshes.push(top);
 
-        gateGroup.position.set(gateX, 0, cz);
+        gateGroup.position.set(cx, 0, gateZ);
         this.scene.add(gateGroup);
 
-        // Frame posts pushed well outside the doorway opening (doorway width=2.6 → ±1.3)
-        // Extra margin added so there is zero chance of overlap with the walkable path.
+        // Frame posts flanking the gate (outside the HALLWAY_W gap = ±1.5)
         const frameMat = this.materials.matMetal;
-        const frameSides = [
-            { geo: [0.15, WALL_H, 0.2], pos: [0, WALL_H / 2, 1.7] },   // right post — well clear of ±1.3 gap
-            { geo: [0.15, WALL_H, 0.2], pos: [0, WALL_H / 2, -1.7] },  // left post — well clear of ±1.3 gap
-            { geo: [0.15, 0.3, 3.6],    pos: [0, WALL_H, 0] }          // top header (above 2.8 bar height)
-        ];
-        frameSides.forEach(f => {
+        [
+            { geo: [0.18, WALL_H, 0.2], pos: [0, WALL_H / 2, 1.8] },
+            { geo: [0.18, WALL_H, 0.2], pos: [0, WALL_H / 2, -1.8] },
+            { geo: [0.18, 0.3, HALLWAY_W + 0.6], pos: [0, WALL_H, 0] },
+        ].forEach(f => {
             const m = new THREE.Mesh(new THREE.BoxGeometry(...f.geo), frameMat);
-            m.position.set(gateX, f.pos[1], cz + f.pos[2]);
+            m.position.set(cx + f.pos[0], f.pos[1], gateZ + f.pos[2]);
             this.scene.add(m);
-            this.collidables.push(m); // frame stays solid permanently — it's the door frame, not the door
+            this.collidables.push(m);
         });
 
-        // Push gate bars into collidables and keep a direct reference for guaranteed removal later
         gateBarMeshes.forEach(m => this.collidables.push(m));
-        this._gateBarMeshes = gateBarMeshes; // world.js exposes this so game.js can remove by identity
+        this._gateBarMeshes = gateBarMeshes;
 
-        // Console next to gate (inside the room, near west side of gate)
-        const consoleX = cx + 2.2, consoleZ = cz - 2.4;
-        const console = new THREE.Mesh(
-            new THREE.BoxGeometry(0.8, 1.2, 0.6),
-            this.materials.matComputer
+        // Exit console beside the gate
+        const consoleX = cx + 2.2, consoleZ = cz - 1.5;
+        const consoleMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 1.2, 0.6), this.materials.matComputer
         );
-        console.position.set(consoleX, 0.6, consoleZ);
-        console.castShadow = true; this.scene.add(console);
-        this.collidables.push(console);
+        consoleMesh.position.set(consoleX, 0.6, consoleZ);
+        consoleMesh.castShadow = true; this.scene.add(consoleMesh);
+        this.collidables.push(consoleMesh);
+
         const screen = new THREE.Mesh(
             new THREE.PlaneGeometry(0.5, 0.3),
             new THREE.MeshStandardMaterial({ color: 0x3a0808, emissive: 0xc41e1e, emissiveIntensity: 1.2 })
         );
         screen.position.set(consoleX, 0.95, consoleZ + 0.31);
         this.scene.add(screen);
+
         this.interactables.push({
-            mesh: console, type: 'exit_console',
+            mesh: consoleMesh, type: 'exit_console',
             prompt: 'UNLOCK EXIT',
-            data: { gate: gateGroup, screen, gateX, gateZ: cz, gateBarMeshes },
+            data: { gate: gateGroup, screen, gateZ, gateBarMeshes },
             bobBase: null
         });
-        this._sign(cx, 2.4, cz - 3.4, 'EMERGENCY EXIT', '#c41e1e', 3.8, 0.8);
-        this._emergencyFixture(cx, 2.7, cz);
+
+        this._sign(cx, 2.4, cz + 1, 'EMERGENCY EXIT', '#c41e1e', 3.8, 0.8);
+        this._emergencyFixture(cx + 3, 2.7, cz);
     }
 
-    // ---------- PROP PRIMITIVES ----------
-    _desk(x, z, w = 2.4) {
-        const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, 1), new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.6, metalness: 0.2 }));
-        top.position.set(x, 1.0, z); top.castShadow = top.receiveShadow = true; this.scene.add(top);
+    // ═══════════════════════════════════════════════════════════════
+    // PROP PRIMITIVES
+    // ═══════════════════════════════════════════════════════════════
+    _desk(x, z, w) {
+        w = w || 2.4;
+        const top = new THREE.Mesh(
+            new THREE.BoxGeometry(w, 0.08, 1),
+            new THREE.MeshStandardMaterial({ color: 0x3a2f24, roughness: 0.6, metalness: 0.2 })
+        );
+        top.position.set(x, 1.0, z);
+        top.castShadow = top.receiveShadow = true;
+        this.scene.add(top);
         this.collidables.push(top);
         const leg = (lx, lz) => {
             const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1, 0.08), this.materials.matMetal);
@@ -848,13 +1047,16 @@ export class World {
         leg(x - w / 2 + 0.1, z - 0.4); leg(x + w / 2 - 0.1, z - 0.4);
         leg(x - w / 2 + 0.1, z + 0.4); leg(x + w / 2 - 0.1, z + 0.4);
     }
+
     _chair(x, z) {
         const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), this.materials.matMetal);
         seat.position.set(x, 0.5, z); seat.castShadow = true; this.scene.add(seat);
         const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.06), this.materials.matMetal);
         back.position.set(x, 0.8, z + 0.22); back.castShadow = true; this.scene.add(back);
     }
-    _monitor(x, z, w = 1) {
+
+    _monitor(x, z, w) {
+        w = w || 1;
         const stand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), this.materials.matComputer);
         stand.position.set(x, 1.15, z); this.scene.add(stand);
         const screen = new THREE.Mesh(new THREE.BoxGeometry(w, 0.6, 0.06), this.materials.matComputer);
@@ -863,100 +1065,116 @@ export class World {
         glow.position.set(x, 1.6, z + 0.035); this.scene.add(glow);
         return screen;
     }
+
     _crate(x, z) {
         const size = 0.7 + Math.random() * 0.3;
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size, size, size),
-            new THREE.MeshStandardMaterial({ color: 0x6e5b3a, roughness: 0.7, metalness: 0.1 }));
+        const m = new THREE.Mesh(
+            new THREE.BoxGeometry(size, size, size),
+            new THREE.MeshStandardMaterial({ color: 0x6e5b3a, roughness: 0.7, metalness: 0.1 })
+        );
         m.position.set(x, size / 2, z);
         m.rotation.y = Math.random() * 0.4 - 0.2;
         m.castShadow = m.receiveShadow = true;
         this.scene.add(m); this.collidables.push(m);
     }
+
     _pipes(x, z) {
         const grp = new THREE.Group();
         grp.position.set(x, 0, z);
         for (let i = 0; i < 3; i++) {
-            const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4, 8), this.materials.matMetal);
+            const pipe = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.08, 0.08, 4, 8), this.materials.matMetal
+            );
             pipe.position.set((i - 1) * 0.22, 2.8, 0); pipe.rotation.z = Math.PI / 2;
             pipe.castShadow = true; grp.add(pipe);
         }
         this.scene.add(grp);
     }
+
     _waterPuddle(x, z, w) {
         const m = new THREE.Mesh(new THREE.CircleGeometry(w / 2, 24), this.materials.matWater);
         m.rotation.x = -Math.PI / 2; m.position.set(x, 0.015, z); this.scene.add(m);
     }
-    _sign(x, y, z, text, color = '#c41e1e', w = 2, h = 0.5) {
+
+    _sign(x, y, z, text, color, w, h) {
+        color = color || '#c41e1e'; w = w || 2; h = h || 0.5;
         const tex = buildSignTexture(text, color);
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({
-            map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.5,
-            roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide
-        }));
-        m.position.set(x, y, z);
-        this.scene.add(m);
+        const m = new THREE.Mesh(
+            new THREE.PlaneGeometry(w, h),
+            new THREE.MeshStandardMaterial({
+                map: tex, emissiveMap: tex, emissive: 0xffffff,
+                emissiveIntensity: 0.5, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide
+            })
+        );
+        m.position.set(x, y, z); this.scene.add(m);
     }
+
     _bed(x, z) {
         const frame = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 2), this.materials.matMetal);
         frame.position.set(x, 0.25, z); frame.castShadow = frame.receiveShadow = true;
         this.scene.add(frame); this.collidables.push(frame);
-        const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.08, 2.02),
-            new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.8 }));
+        const sheet = new THREE.Mesh(
+            new THREE.BoxGeometry(0.92, 0.08, 2.02),
+            new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.8 })
+        );
         sheet.position.set(x, 0.55, z); this.scene.add(sheet);
     }
+
     _cabinet(x, z) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.8, 0.4),
-            new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.5, metalness: 0.5 }));
+        const m = new THREE.Mesh(
+            new THREE.BoxGeometry(0.6, 1.8, 0.4),
+            new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.5, metalness: 0.5 })
+        );
         m.position.set(x, 0.9, z); m.castShadow = m.receiveShadow = true;
         this.scene.add(m); this.collidables.push(m);
     }
+
     _note(x, y, z, label) {
         const tex = buildPaperTexture(label);
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.55), new THREE.MeshStandardMaterial({
-            map: tex, roughness: 0.8, side: THREE.DoubleSide
-        }));
-        m.position.set(x, y, z); m.rotation.x = -Math.PI / 2 + 0.1; m.rotation.y = Math.random() * 0.2;
+        const m = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.4, 0.55),
+            new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, side: THREE.DoubleSide })
+        );
+        m.position.set(x, y, z);
+        m.rotation.x = -Math.PI / 2 + 0.1;
+        m.rotation.y = Math.random() * 0.2;
         this.scene.add(m);
         this.interactables.push({
             mesh: m, type: 'note', prompt: 'READ NOTE',
             data: { text: this._noteText(label) }, bobBase: y
         });
     }
+
     _noteText(label) {
         const lib = {
-            'MEDICAL LOG': 'Day 41 — Subject 04 is no longer responsive to sedation. The neural rejection is accelerating. Recommend full quarantine. We should never have opened the containment.',
-            'INVENTORY LOG': 'Day 39 — Three keycards reported missing. Storage now requires Security clearance only. If you find one, return to the office immediately.',
-            'EXPERIMENT 07': 'Day 44 — The samples in tank C are moving on their own. Power fluctuations correlate with their activity. Cut power to the wing if anomaly persists.'
+            'MEDICAL LOG':      'Day 41 — Subject 04 is no longer responsive to sedation. The neural rejection is accelerating. Recommend full quarantine. We should never have opened the containment.',
+            'INVENTORY LOG':    'Day 39 — Three keycards reported missing. Storage now requires Security clearance only. If you find one, return to the office immediately.',
+            'EXPERIMENT 07':    'Day 44 — The samples in tank C are moving on their own. Power fluctuations correlate with their activity. Cut power to the wing if anomaly persists.',
+            'CLASSIFIED FILES': 'Day 47 — Files show 12 experiments. Only one subject remains. Do not open the security office door. They are not what they were.',
+            'CASE FILE 07':     'Subject 07. Status: Escaped containment. Threat level: Extreme. Last seen: Main corridor. Do NOT engage directly.',
+            'ADMIN MEMO':       'All staff must evacuate by 0300. Generator is failing. Security lockdown initiated. God help us.',
+            'BREAK SCHEDULE':   'WEDNESDAY SHIFT: A team. Coffee machine is broken again. Generator room is off-limits until maintenance clears it.',
         };
         return lib[label] || 'The text is faded beyond reading.';
     }
+
     _toolbox(x, z) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.25, 0.3),
-            new THREE.MeshStandardMaterial({ color: 0xc41e1e, roughness: 0.5, metalness: 0.5 }));
+        const m = new THREE.Mesh(
+            new THREE.BoxGeometry(0.5, 0.25, 0.3),
+            new THREE.MeshStandardMaterial({ color: 0xc41e1e, roughness: 0.5, metalness: 0.5 })
+        );
         m.position.set(x, 0.125, z); m.castShadow = true; this.scene.add(m);
         this.collidables.push(m);
     }
-    _serverRack(x, z) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2.4, 1),
-            new THREE.MeshStandardMaterial({ color: 0x12120f, roughness: 0.4, metalness: 0.7 }));
-        m.position.set(x, 1.2, z); m.castShadow = m.receiveShadow = true; this.scene.add(m);
-        this.collidables.push(m);
-        // blinking LEDs
-        for (let i = 0; i < 5; i++) {
-            const led = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.04),
-                new THREE.MeshStandardMaterial({
-                    color: Math.random() < 0.5 ? 0x4fbc94 : 0x66aaff,
-                    emissive: Math.random() < 0.5 ? 0x4fbc94 : 0x66aaff,
-                    emissiveIntensity: 1.4
-                }));
-            led.position.set(x, 0.5 + i * 0.4, z + 0.51); this.scene.add(led);
-        }
-    }
+
     _shelf(x, z) {
         const grp = new THREE.Group();
         grp.position.set(x, 0, z);
         for (let i = 0; i < 4; i++) {
-            const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.05, 0.6),
-                new THREE.MeshStandardMaterial({ color: 0x6e6258, roughness: 0.8 }));
+            const shelf = new THREE.Mesh(
+                new THREE.BoxGeometry(2.4, 0.05, 0.6),
+                new THREE.MeshStandardMaterial({ color: 0x6e6258, roughness: 0.8 })
+            );
             shelf.position.y = 0.5 + i * 0.6; shelf.castShadow = shelf.receiveShadow = true;
             grp.add(shelf);
         }
@@ -966,51 +1184,53 @@ export class World {
         this.scene.add(grp);
         this.collidables.push(side1, side2);
     }
+
     _labTable(x, z) {
-        const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.9),
-            new THREE.MeshStandardMaterial({ color: 0xc8c2b4, roughness: 0.3, metalness: 0.3 }));
+        const top = new THREE.Mesh(
+            new THREE.BoxGeometry(1.4, 0.06, 0.9),
+            new THREE.MeshStandardMaterial({ color: 0xc8c2b4, roughness: 0.3, metalness: 0.3 })
+        );
         top.position.set(x, 0.9, z); top.castShadow = top.receiveShadow = true;
         this.scene.add(top); this.collidables.push(top);
     }
+
     _cylinder(x, z) {
-        const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.6, 24, 1, true),
+        const glass = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.3, 0.3, 1.6, 24, 1, true),
             new THREE.MeshStandardMaterial({
                 color: 0x88ccaa, transparent: true, opacity: 0.35,
                 roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide
-            }));
+            })
+        );
         glass.position.set(x, 1.8, z); this.scene.add(glass);
         const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.15, 24), this.materials.matMetal);
         base.position.set(x, 1.0, z); this.scene.add(base);
         const top = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.15, 24), this.materials.matMetal);
         top.position.set(x, 2.7, z); this.scene.add(top);
-        // bioluminescent contents
-        const blob = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12),
-            new THREE.MeshStandardMaterial({ color: 0x4fbc94, emissive: 0x4fbc94, emissiveIntensity: 1.4 }));
+        const blob = new THREE.Mesh(
+            new THREE.SphereGeometry(0.18, 16, 12),
+            new THREE.MeshStandardMaterial({ color: 0x4fbc94, emissive: 0x4fbc94, emissiveIntensity: 1.4 })
+        );
         blob.position.set(x, 1.4, z); this.scene.add(blob);
         this._light(0x4fbc94, 0.4, x, 1.4, z, 3, 2);
     }
 
-    // ---------- ATMOSPHERE ----------
+    // ═══════════════════════════════════════════════════════════════
+    // ATMOSPHERE — ambient light + dust + horror spotlights
+    // ═══════════════════════════════════════════════════════════════
     _buildAtmosphere() {
-        // Dim ambient — enough to see room shapes, flashlight does the real work
-        const hemi = new THREE.HemisphereLight(
-            0x2a2a3a,   // sky: dim blue (ceiling bounce)
-            0x14100a,   // ground: dim warm
-            0.5         // raised slightly — enough to make out room/corridor shapes
-                         // before generator power, flashlight still does the real work
-        );
+        // Hemisphere: dim enough that the flashlight is still essential
+        const hemi = new THREE.HemisphereLight(0x2a2a3a, 0x14100a, 0.5);
         this.scene.add(hemi);
 
-        // dust particles in air
+        // Floating dust particles
         const count = 800;
-        const geom = new THREE.BufferGeometry();
+        const geom  = new THREE.BufferGeometry();
         const positions = new Float32Array(count * 3);
-        const initialY = new Float32Array(count);
         for (let i = 0; i < count; i++) {
             positions[i * 3 + 0] = (Math.random() - 0.5) * 80;
             positions[i * 3 + 1] = Math.random() * 3;
-            positions[i * 3 + 2] = (Math.random() - 0.5) * 80 - 8;
-            initialY[i] = positions[i * 3 + 1];
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 80;
         }
         geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         const mat = new THREE.PointsMaterial({
@@ -1022,33 +1242,42 @@ export class World {
         this._dust.userData.t = 0;
         this.scene.add(this._dust);
 
-        // distant pin-point ground spotlights along main corridor (cast soft shadows)
-        const spot1 = new THREE.SpotLight(0xffeebb, 0.6, 14, Math.PI / 5, 0.5, 1.6);
-        spot1.position.set(-5, 3, 14); spot1.target.position.set(-5, 0, 14);
-        spot1.castShadow = true; spot1.shadow.mapSize.set(256, 256); spot1.shadow.bias = -0.002;
-        this.scene.add(spot1); this.scene.add(spot1.target);
-        this.flickerLights.push({ light: spot1, base: 0.6, phase: 1.2, rate: 0.6, depth: 0.45 });
+        // Atmospheric horror spotlight along main spine corridor
+        const spot = new THREE.SpotLight(0xffeebb, 0.6, 14, Math.PI / 5, 0.5, 1.6);
+        spot.position.set(0, 3, 8);
+        spot.target.position.set(0, 0, 8);
+        spot.castShadow = true;
+        spot.shadow.mapSize.set(256, 256);
+        spot.shadow.bias = -0.002;
+        this.scene.add(spot); this.scene.add(spot.target);
+        this.flickerLights.push({ light: spot, base: 0.6, phase: 1.2, rate: 0.6, depth: 0.45 });
     }
 
-    // ---------- UPDATE LOOP ----------
+    // ═══════════════════════════════════════════════════════════════
+    // UPDATE LOOP — called every frame from game.js
+    // ═══════════════════════════════════════════════════════════════
     update(dt, time) {
-        // generator power ramp — smoothly fade ceiling lights in/out over 3 seconds
+        // Generator power ramp — smooth fade over 3 seconds
         if (this._powerRamping) {
             const elapsed = (performance.now() - this._powerRampStart) / 1000;
-            const t = Math.min(1, elapsed / 3.0);
-            const eased = t * t * (3 - 2 * t); // smoothstep
+            const t       = Math.min(1, elapsed / 3.0);
+            const eased   = t * t * (3 - 2 * t); // smoothstep
             this.mainPowerLights.forEach((p, i) => {
-                p.light.intensity = this._powerRampFrom[i] + (this._powerRampTo[i] - this._powerRampFrom[i]) * eased;
+                p.light.intensity = this._powerRampFrom[i] +
+                    (this._powerRampTo[i] - this._powerRampFrom[i]) * eased;
             });
             if (t >= 1) this._powerRamping = false;
         }
-        // flicker lights
+
+        // Flicker lights
         this.flickerLights.forEach(f => {
-            const v = Math.sin(time * f.rate * 8 + f.phase) * 0.4 + Math.sin(time * f.rate * 23 + f.phase * 2) * 0.3;
+            const v = Math.sin(time * f.rate * 8 + f.phase) * 0.4
+                    + Math.sin(time * f.rate * 23 + f.phase * 2) * 0.3;
             const r = (Math.random() < 0.02 ? -0.7 : 0);
             f.light.intensity = Math.max(0, f.base * (1 + (v + r) * f.depth));
         });
-        // dust drift
+
+        // Dust drift
         if (this._dust) {
             const pos = this._dust.geometry.attributes.position;
             this._dust.userData.t += dt;
@@ -1059,9 +1288,11 @@ export class World {
             }
             pos.needsUpdate = true;
         }
-        // fan blades spin (only after generator on, but we keep slow drift anyway)
+
+        // Fan blades
         if (this._fanBlades) this._fanBlades.rotation.z += dt * (this.fanSpeed || 0.1);
-        // floating interactables bob
+
+        // Interactable bob + spin
         this.interactables.forEach(it => {
             if (it.bobBase != null && it.mesh.userData.spin) {
                 it.mesh.rotation.y += dt * 0.6;
